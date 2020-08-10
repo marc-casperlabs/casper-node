@@ -41,6 +41,18 @@ make setup-rs
 make build-system-contracts -j
 ```
 
+#### Containerized Setup
+
+Add a file `.env` in project folder. An example is available under `env.example`.
+
+Build and run docker image:
+```
+docker network create casperlabs
+docker-compose build
+docker-compose up
+```
+
+
 ### Running
 
 To run a validator node with the [local configuration options](resources/local/config.toml):
