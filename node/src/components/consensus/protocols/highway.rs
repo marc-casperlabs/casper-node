@@ -139,6 +139,7 @@ impl<I: NodeIdT, C: Context> HighwayProtocol<I, C> {
                 timestamp,
                 height,
                 terminal,
+                proposer,
             } => {
                 results.push(ConsensusProtocolResult::FinalizedBlock {
                     value,
@@ -147,6 +148,7 @@ impl<I: NodeIdT, C: Context> HighwayProtocol<I, C> {
                     timestamp,
                     height,
                     switch_block: terminal,
+                    proposer,
                 });
             }
         }

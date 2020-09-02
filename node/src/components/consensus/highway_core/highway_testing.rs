@@ -489,6 +489,7 @@ where
                 timestamp,
                 height,
                 terminal,
+                proposer: _proposer,
             } => {
                 if !new_equivocators.is_empty() {
                     warn!("New equivocators detected: {:?}", new_equivocators);
