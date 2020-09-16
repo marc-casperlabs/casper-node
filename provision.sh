@@ -42,8 +42,8 @@ case $ACTION in
     CHAINSPEC_TOML=/tmp/chainspec.toml
     CONFIG_TOML=/tmp/config.toml
 
-    echo "setting genesis timestamp to NOW + 5 minutes"
-    TIMESTAMP=$(date --date '+5 min' '+%s000')
+    echo "setting genesis timestamp to NOW + 1 minutes"
+    TIMESTAMP=$(date --date '+1 min' '+%s000')
 
     # Prepare temporary chainspec and config by making a copy from the production chainspec.
     cp $(pwd)/resources/production/chainspec.toml ${CHAINSPEC_TOML}
