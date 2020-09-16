@@ -1,5 +1,22 @@
 #!/bin/sh
 
+# Central entrypoint. Requires tmux-xpanes and tmux, e.g. `nix-shell -p tmux-xpanes -p tmux`
+#
+# This is not to be used with the debian packages, but a dev tool to stand up arbitrary Ubuntu 18.04
+# nodes in a network (max. 5, because it relies on the included pregenerated keys).
+#
+# Usage is straightforward: Call `./provision.sh ACTION IP1 IP2 ...` with these actions in order:
+#
+# * `setup` will install build dependencies, compile and install a new node. Prepare coffee
+#   beforehand.
+# * `provision` will install the configuration (chainspec, etc.) and set the genesis timestamp
+#   accordingly, 1 minute into the future. Be sure to start the nodes before that.
+# * `start` will start the nodes (using systemd) and attach to the logs. You can exit with C-c, C-d
+#   without stopping the background service.
+#
+# Other things that come in useful are `status`, `logs` and `ssh`.
+# BE SURE TO ALWAYS PROVIDE ALL NODE IPS IN THE SAME ORDER ON EVERY COMMAND.
+
 set -e
 
 ACTION=$1
