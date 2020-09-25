@@ -4,6 +4,7 @@
 mod external;
 pub mod milliseconds;
 mod round_robin;
+mod semaphore;
 
 use std::{
     cell::RefCell,
