@@ -5,12 +5,13 @@
 set -eu
 
 # Build the contracts
-make build-contracts-rs
+# make build-contracts-rs
 
 # Build the node first, so that `sleep` in the loop has an effect.
-cargo build -p casper-node
+# cargo build -p casper-node
 
 BASEDIR=$(readlink -f $(dirname $0))
+ACCOUNTS_CSV=/tmp/run-dev-accounts.csv
 CHAINSPEC=$(mktemp -t chainspec_XXXXXXXX --suffix .toml)
 TRUSTED_HASH="${TRUSTED_HASH:-}"
 
@@ -24,15 +25,31 @@ echo "GENESIS_TIMESTAMP=${TIMESTAMP}"
 cp ${BASEDIR}/resources/local/chainspec.toml ${CHAINSPEC}
 sed -i "s/^\([[:alnum:]_]*timestamp\) = .*/\1 = \"${TIMESTAMP}\"/" ${CHAINSPEC}
 sed -i 's|\.\./\.\.|'"$BASEDIR"'|' ${CHAINSPEC}
-sed -i 's|accounts\.csv|'"$BASEDIR"'/resources/local/accounts.csv|' ${CHAINSPEC}
+sed -i 's|accounts\.csv|'"${ACCOUNTS_CSV}"'|' ${CHAINSPEC}
 
 # If no nodes defined, start all.
 NODES="${@:-1 2 3 4 5}"
+
+# Setup a node's keys.
+setup_node() {
+    ID=$1
+    KEY_DIR=/tmp/node-${ID}-keys
+
+    if [ -e ${KEY_DIR} ]; then
+        echo "already got a key for node ${ID}"
+        return
+    fi;
+
+    mkdir -p ${KEY_DIR}/
+    cargo run --quiet --manifest-path=client/Cargo.toml -- keygen ${KEY_DIR}
+}
 
 run_node() {
     ID=$1
     STORAGE_DIR=/tmp/node-${ID}-storage
     LOGFILE=/tmp/node-${ID}.log
+    KEY_DIR=/tmp/node-${ID}-keys
+
     rm -rf ${STORAGE_DIR}
     rm -f ${LOGFILE}
     rm -f ${LOGFILE}.stderr
@@ -67,15 +84,15 @@ run_node() {
         --property=TimeoutSec=600 \
         --property=WorkingDirectory=${BASEDIR} \
         $DEPS \
-        --setenv=RUST_LOG=trace \
+        --setenv=RUST_LOG=info \
         --property=StandardOutput=file:${LOGFILE} \
         --property=StandardError=file:${LOGFILE}.stderr \
         -- \
-        cargo run -p casper-node \
+        cargo run --release -p casper-node \
         validator \
         resources/local/config.toml \
         --config-ext=network.systemd_support=true \
-        --config-ext=consensus.secret_key_path=secret_keys/node-${ID}.pem \
+        --config-ext=consensus.secret_key_path=${KEY_DIR}/secret_key.pem \
         --config-ext=storage.path=${STORAGE_DIR} \
         --config-ext=network.gossip_interval=1000 \
         --config-ext=node.chainspec_config_path=${CHAINSPEC} \
@@ -86,8 +103,25 @@ run_node() {
 
     # Sleep so that nodes are actually started in sequence.
     # Hopefully, fixes some of the race condition issues during startup.
-    sleep 1;
+    # sleep 1;  # FFS
 }
+
+# Generates keys for all nodes
+for i in $NODES; do
+    setup_node $i
+done;
+
+# Regenerate accounts CSV
+rm -f ${ACCOUNTS_CSV}
+for ID in $NODES; do
+   KEY_DIR=/tmp/node-${ID}-keys
+   HEX_KEY=$(cat ${KEY_DIR}/public_key_hex)
+   WEIGHT=10000000000000
+   MOTES=1000000000000000
+   echo "${HEX_KEY},${MOTES},${WEIGHT}" >> ${ACCOUNTS_CSV}
+done;
+
+# Setup config
 
 for i in $NODES; do
     run_node $i
@@ -95,4 +129,4 @@ done;
 
 echo "Test network starting."
 echo
-echo "To stop all nodes, run stop-dev.sh"
+echo 'To stop all nodes, run `systemctl --user stop node-\*`'
