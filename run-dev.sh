@@ -73,12 +73,18 @@ run_node() {
 
     echo "$TRUSTED_HASH_ARG"
 
+    # We compile in a seperate step, since we use resource limits for the actual process.
+    # cargo build --release
+
     # We run with a 10 minute timeout, to allow for compilation and loading.
+    cargo build --release
+
+    systemctl --user reset-failed node-$ID || true
+
     systemd-run \
         --user \
         --unit node-$ID \
         --description "Casper Dev Node ${ID}" \
-        --collect \
         --no-block \
         --property=Type=notify \
         --property=TimeoutSec=600 \
