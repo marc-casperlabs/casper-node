@@ -88,7 +88,7 @@ run_node() {
         --setenv=RUST_LOG=info \
         --property=StandardOutput=file:${LOGFILE} \
         --property=StandardError=file:${LOGFILE}.stderr \
-        --property=LimitDATA=200M \
+        --property=LimitDATA=400M \
         -- \
         ${BASEDIR}/target/release/casper-node \
         validator \
