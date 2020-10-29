@@ -107,10 +107,6 @@ run_node() {
         ${TRUSTED_HASH_ARG}
 
     echo "Started node $ID, logfile: ${LOGFILE}"
-
-    # Sleep so that nodes are actually started in sequence.
-    # Hopefully, fixes some of the race condition issues during startup.
-    # sleep 1;  # FFS
 }
 
 # Generates keys for all nodes
