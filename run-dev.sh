@@ -87,6 +87,7 @@ run_node() {
         --setenv=RUST_LOG=info \
         --property=StandardOutput=file:${LOGFILE} \
         --property=StandardError=file:${LOGFILE}.stderr \
+        --property=LimitDATA=infinity \  # FIXME
         -- \
         cargo run --release -p casper-node \
         validator \
