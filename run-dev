@@ -1,71 +1,124 @@
 #!/usr/bin/env python3
 
+from datetime import datetime, timedelta
 import os
+import random
 import shutil
 import subprocess
+import time
 
 import click
+import toml
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+CHAINSPEC_TEMPLATE = os.path.join(BASE_DIR, "resources", "local", "chainspec.toml")
+CONFIG_TEMPLATE = os.path.join(BASE_DIR, "resources", "local", "config.toml")
+
+# TODO: TRUSTED HASH
+#     TODO systemctl --user reset-failed node-$ID || true
+#         TRUSTED_HASH_ARG=--config-ext=node.trusted_hash="${TRUSTED_HASH}"
+
+# Singleton holding the path of a compiled node. Use `node_path()` instead.
+_node_path = None
 
 
-def run_client(*args):
-    return subprocess.check_call(
-        [
-            "cargo",
-            "run",
-            "--quiet",
-            "--manifest-path={}/client/Cargo.toml".format(BASE_DIR),
-            "--",
-        ]
-        + list(args)
-    )
+def node_path():
+    """Compiles the casper node once, returns path to `casper-node` binary"""
+    global _node_path
+
+    if not _node_path:
+        # Compile once (and only once).
+        subprocess.check_call(
+            [
+                "cargo",
+                "build",
+                "--release",
+                "--manifest-path={}".format(
+                    os.path.join(BASE_DIR, "node", "Cargo.toml")
+                ),
+            ]
+        )
+        _node_path = os.path.abspath(
+            os.path.join(BASE_DIR, "target", "release", "casper-node")
+        )
+
+    return _node_path
 
 
 class RunDevError(Exception):
+    """A run-dev exception"""
+
     pass
 
 
 class Namespace:
-    def __init__(self, name, base_dir, num_nodes):
+    def __init__(self, name, base_dir, num_nodes, genesis_offset, validator_slots):
+        """A namespace containing all data required to run a full network.
+
+        Includes configuration files and runtime state for all nodes, as well as chainspec data"""
         self.name = name
         self.ns_dir = os.path.join(base_dir, name)
+        self.chainspec_toml = os.path.abspath(
+            os.path.join(self.ns_dir, "chainspec.toml")
+        )
         self.num_nodes = num_nodes
-        self.accounts_csv = os.path.join(self.ns_dir, "accounts.csv")
+        self.genesis_offset = genesis_offset
+        self.validator_slots = validator_slots
 
-        if not self.is_initialized():
-            self.is_mismatched = False
-        else:
-            self.num_nodes = len(open(self.accounts_csv).readlines())
-            self.is_mismatched = self.num_nodes != num_nodes
+        # Precalculated paths and values.
+        self.accounts_csv = os.path.abspath(os.path.join(self.ns_dir, "accounts.csv"))
+        self.bootstrap_port = random.Random(self.name).randint(50000, 60000)
+        self.nodes = tuple(range(self.num_nodes))
+
+    def add_asset(self, input_path):
+        """Copies a file into the namespace, returns the resulting path"""
+        asset_dir = os.path.join(self.ns_dir, "assets")
+        if not os.path.exists(asset_dir):
+            os.makedirs(asset_dir)
+
+        basename = os.path.basename(input_path)
+        dest = os.path.join(asset_dir, basename)
+        progress("adding {}".format(basename))
+        shutil.copy(input_path, dest)
+        return dest
 
     def destroy(self):
+        """Destroys a namespace, stopping all nodes and removing its data"""
         if self.is_initialized():
-            self.stop_nodes(*self.nodes())
-            print("destroying namespace {}".format(self.name))
+            self.stop_nodes(*self.nodes)
+            progress("destroying namespace {}".format(self.name))
             shutil.rmtree(self.ns_dir)
         else:
-            print("namespace {} does not exist".format(self.name))
+            info("namespace {} does not exist".format(self.name))
 
+    def node_http_port(self, node_id):
+        """HTTP port for a node"""
+        base_port = 30000 + random.Random(self.name).randint(0, 100) * 200
+        return base_port + node_id
+
+    def load_chainspec(self):
+        """Loads a chainspec from an existing namespace"""
+        return toml.load(open(self.chainspec_toml))
 
     def initialize_namespace(self):
+        """Initializes a namespace"""
         if not self.is_initialized():
             os.makedirs(self.ns_dir)
 
             accounts = ""
 
             # Generate keys for each node.
-            for i in range(self.num_nodes):
+            for i in self.nodes:
                 motes = 1000000000000000
                 weight = 10000000000000
 
                 key_dir = self.node_key_dir(i)
-                print("generating key for node {} [{}]".format(i, key_dir))
+                progress("generating key for node {} [{}]".format(i, key_dir))
                 run_client("keygen", key_dir)
                 key_hex = open(os.path.join(key_dir, "public_key_hex")).read().strip()
-                print(
+                progress(
                     "adding account {} with {} motes and {} weight".format(
-                        key_hex, motes, weight
+                        click.style(key_hex[:7], fg="cyan", reset=True), motes, weight
                     )
                 )
                 accounts += "{},{},{}\n".format(key_hex, motes, weight)
@@ -73,68 +126,327 @@ class Namespace:
             # Generate an accounts CSV
             open(self.accounts_csv, "w").write(accounts)
 
-    def is_initialized(self):
-        return os.path.exists(self.accounts_csv)
+            # Setup a chainspec
+            chainspec = toml.load(open(CHAINSPEC_TEMPLATE))
+            chainspec_base = os.path.dirname(CHAINSPEC_TEMPLATE)
 
-    def nodes(self):
-        return range(self.num_nodes)
+            chainspec["genesis"]["mint_installer_path"] = self.add_asset(
+                os.path.join(
+                    chainspec_base, chainspec["genesis"]["mint_installer_path"]
+                )
+            )
+            chainspec["genesis"]["pos_installer_path"] = self.add_asset(
+                os.path.join(chainspec_base, chainspec["genesis"]["pos_installer_path"])
+            )
+            chainspec["genesis"]["standard_payment_installer_path"] = self.add_asset(
+                os.path.join(
+                    chainspec_base,
+                    chainspec["genesis"]["standard_payment_installer_path"],
+                )
+            )
+            chainspec["genesis"]["auction_installer_path"] = self.add_asset(
+                os.path.join(
+                    chainspec_base, chainspec["genesis"]["auction_installer_path"]
+                )
+            )
+            chainspec["genesis"]["accounts_path"] = self.accounts_csv
+            chainspec["genesis"]["validator_slots"] = self.validator_slots
+
+            # Setup genesis timestamp
+            genesis_ts = create_timestamp(self.genesis_offset)
+            chainspec["genesis"]["timestamp"] = genesis_ts
+
+            # Setup each nodes configuration
+            for id in self.nodes:
+                # Ensure the storage dir exists
+                storage_dir = self.node_storage_dir(id)
+
+                if not os.path.exists(storage_dir):
+                    progress("creating storage dir for node {}", id)
+                    os.makedirs(storage_dir)
+
+                config = toml.load(open(CONFIG_TEMPLATE))
+                config["node"]["chainspec_config_path"] = self.chainspec_toml
+                config["consensus"]["secret_key_path"] = self.node_key_path(id)
+                config["storage"]["path"] = self.node_storage_dir(id)
+
+                # Setup networking/IPs
+                bootstrap_addr = "127.0.0.1:{}".format(self.bootstrap_port)
+                config["network"]["gossip_interval"] = "1000"
+                config["network"]["known_addresses"] = [bootstrap_addr]
+                config["network"]["systemd_support"] = True
+                config["http_server"]["address"] = "127.0.0.1:{}".format(
+                    self.node_http_port(id)
+                )
+
+                if id == 1:
+                    # Bootstrap node.
+                    config["network"]["bind_address"] = bootstrap_addr
+                    config["network"]["public_address"] = bootstrap_addr
+                else:
+                    config["network"]["bind_address"] = "127.0.0.1:0"
+                    config["network"]["public_address"] = "127.0.0.1:0"
+
+                # Save config
+                progress(
+                    "saving node configuration for node {} [{}]",
+                    id,
+                    self.node_config_toml(id),
+                )
+                toml.dump(config, open(self.node_config_toml(id), "w"))
+
+    def is_initialized(self):
+        """Returns whether or not the namespace has been intialized.
+
+        Raises an exception if it has been initialized with a different number of nodes"""
+        if os.path.exists(self.accounts_csv):
+            return True
+
+        if os.path.exists(self.ns_dir):
+            raise RunDevError(
+                "your namespace is corrupted, please remove {} manually".format(
+                    self.ns_dir
+                )
+            )
+
+        return False
+
+    def node_config_toml(self, node_id):
+        """Return the config.toml path of a node"""
+        return os.path.join(self.node_dir(node_id), "config.toml")
+
+    def node_name(self, node_id):
+        """Return the unit-name of a node."""
+        return "{}_node-{}".format(self.name, node_id)
+
+    def node_dir(self, node_id):
+        """Return the base directory for a node."""
+        return os.path.join(self.ns_dir, "node-{}".format(node_id))
 
     def node_key_dir(self, node_id):
-        return os.path.join(self.ns_dir, "node-{}/keys".format(node_id))
+        """Return the key dir of a specific node ID"""
+        return os.path.join(self.node_dir(node_id), "keys")
+
+    def node_key_path(self, node_id):
+        """Return the secret key path of a specific node ID"""
+        return os.path.join(self.node_dir(node_id), 'keys', 'secret_key.pem')
+
+    def node_storage_dir(self, node_id):
+        """Return the storage dir of a specific node ID"""
+        return os.path.join(self.node_dir(node_id), 'storage')
+
+    def node_stderr(self, node_id):
+        """Logfile for nodes stdout"""
+        return os.path.join(self.node_dir(node_id), "stderr")
+
+    def node_stdout(self, node_id):
+        """Logfile for nodes stderr"""
+        return os.path.join(self.node_dir(node_id), "stdout")
+
+    def reset_nodes(self, *ids):
+        """Stop and reset state of nodes."""
+        self.stop_nodes(*ids)
+        for id in ids:
+            if os.path.exists(self.node_storage_dir(id)):
+                progress("removing storage of node {}", id)
+                shutil.rmtree(self.node_storage_dir(id))
+            if os.path.exists(self.node_stdout(id)):
+                progress("removing stdout log of node {}", id)
+                os.unlink(self.node_stdout(id))
+            if os.path.exists(self.node_stderr(id)):
+                progress("removing stderr log of node {}", id)
+                os.unlink(self.node_stderr(id))
 
     def start_nodes(self, *ids):
+        """Start a node, without resetting its state."""
         self.initialize_namespace()
-        pass
+
+        for id in ids:
+            if id not in self.nodes:
+                raise RunDevError("node ID {} is invalid".format(id))
+
+            deps = [] if id == 0 else ["{}_node-{}".format(self.name, self.node_name(1))]
+            if id != 0:
+                deps
+
+            progress("starting node {}", id)
+            systemd_run(
+                self.node_name(id),
+                "casperlabs node {} in namespace {}".format(id, self.name),
+                node_path(),
+                properties = {
+                    'Type': 'notify',
+                    'TimeoutSec': 10,
+                    'WorkingDirectory': self.node_dir(id),
+                    'StandardOutput': 'file:{}'.format(self.node_stdout(id)),
+                    'StandardError': 'file:{}'.format(self.node_stderr(id)),
+                    'LimitDATA': '400M',  # TODO Make configurable
+                },
+                deps=deps,
+                env={
+                    'RUST_LOG': 'info',
+                },
+                app_args=[
+                    'validator',
+                    self.node_config_toml(id),
+                ]
+            )
 
     def stop_nodes(self, *ids):
-        print("stopping nodes {}".format(ids))
+        progress("stopping nodes {}".format(" ".join(str(id) for id in ids)))
 
+        units = [self.node_name(id) for id in ids]
+        subprocess.call(["systemctl", "--user", "stop"] + units)
 
 
 @click.group()
 @click.option(
     "-b", "--base-dir", default="/tmp/run-dev", help="Base directory to store data in"
 )
-@click.option("--namespace", default="default", help="Namespace to run nodes in")
+@click.option(
+    "--namespace", "name", default="default", help="Namespace to run nodes in"
+)
 @click.option(
     "-n",
     "--num-nodes",
     default=5,
     type=int,
-    help="Total number of nodes in the namespace",
+    help="(for new namespace) Total number of nodes in the namespace",
+)
+@click.option(
+    "-g",
+    "--genesis-offset",
+    default=15,
+    help="(for new namespace) Offset for genesis in seconds",
+)
+@click.option(
+    "--validator-slots",
+    default=5,
+    help="(for new namespace) Number of validator slots in an auction",
 )
 @click.pass_context
-def cli(ctx, base_dir, namespace, num_nodes):
-    ctx.obj = Namespace(namespace, base_dir=base_dir, num_nodes=num_nodes)
+def cli(ctx, **kwargs):
+    ctx.obj = Namespace(**kwargs)
 
 
 @cli.command()
-@click.argument("node_ids", nargs=-1)
+@click.option(
+    "-f", "--force", is_flag=True, help="destroy namespace if it already exists"
+)
+@click.pass_obj
+def create(namespace, force):
+    """Creates a new namespace"""
+    if namespace.is_initialized():
+        if not force:
+            raise RunDevError("namespace already initialized")
+        namespace.destroy()
+
+    namespace.initialize_namespace()
+
+
+@cli.command()
+@click.argument("node_ids", type=int, nargs=-1)
 @click.pass_obj
 def start(namespace, node_ids):
-    if namespace.is_mismatched:
-        raise RunDevError(
-            "mismatch of namespace and number of nodes. if you want to change the network size, destroy the namespace first"
-        )
+    """Start a specific (or all) nodes in the namespace"""
+    if not namespace.is_initialized():
+        namespace.initialize_namespace()
 
     if not node_ids:
-        node_ids = tuple(namespace.nodes())
-        print(
-            "no node ids specified, assuming {}".format(
-                " ".join(str(id) for id in node_ids)
-            )
-        )
+        node_ids = tuple(namespace.nodes)
+        info("no node ids specified, assuming {}", " ".join(str(id) for id in node_ids))
 
     namespace.start_nodes(*node_ids)
+
+
+
+@cli.command()
+@click.argument("node_ids", type=int, nargs=-1)
+@click.pass_obj
+def stop(namespace, node_ids):
+    """Stop a specific (or all) nodes in the namespace"""
+    if not namespace.is_initialized():
+        raise RunDevError("cannot stop nodes, no namespace initialized")
+
+    if not node_ids:
+        node_ids = tuple(namespace.nodes)
+        info("no node ids specified, assuming {}", " ".join(str(id) for id in node_ids))
+
+    namespace.stop_nodes(*node_ids)
 
 
 @cli.command()
 @click.pass_obj
 def destroy(namespace):
+    """Stop all nodes and removes all data from active namespace"""
     namespace.destroy()
 
+
+def run_client(*args):
+    """Run the casper client, compiling it if necessary, with the given command-line args"""
+    return subprocess.check_call(
+        [
+            "cargo",
+            "run",
+            "--quiet",
+            "--manifest-path={}".format(os.path.join(BASE_DIR, "client", "Cargo.toml")),
+            "--",
+        ]
+        + list(args)
+    )
+
+
+def create_timestamp(offset):
+    """Creates a chainspec-compatible timestamp with an offset given in seconds"""
+    return (datetime.utcnow() + timedelta(seconds=offset)).isoformat("T") + "Z"
+
+
+def systemd_run(
+    name, description, binary, properties={}, deps=[], run_args=[], app_args=[], env={}
+):
+    args = [
+        "systemd-run",
+        "--user",
+        "--unit",
+        name,
+        "--description",
+        description,
+        "--no-block",
+    ]
+
+    for (k, v) in properties.items():
+        args.append("--property={}={}".format(k, v))
+
+    for dep in deps:
+        args.append("--property=After={}.service".format(dep))
+        args.append("--property=Requires={}.service".format(dep))
+
+    for (k, v) in env.items():
+        args.append("--setenv={}={}".format(k, v))
+    args.extend(run_args)
+
+    args.append("--")
+    args.append(os.path.abspath(binary))
+    args.extend(app_args)
+
+    subprocess.check_call(args)
+
+
+def progress(msg, *args):
+    """Outputs a step in a process"""
+    click.secho(" * ", fg="green", nl=False)
+    click.echo(msg.format(*args))
+
+
+def info(msg, *args):
+    """Outputs information"""
+    click.echo("   ", nl=False)
+    click.secho(msg.format(*args), fg="white")
+
+
 if __name__ == "__main__":
+    """Main entry point"""
     try:
         cli()
     except RunDevError as e:
-        print("error: {}".format(e))
+        click.secho("error: {}".format(e), fg="yellow")
