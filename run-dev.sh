@@ -73,11 +73,6 @@ run_node() {
 
     echo "$TRUSTED_HASH_ARG"
 
-    # We compile in a seperate step, since we use resource limits for the actual process.
-    # cargo build --release
-
-    # We run with a 10 minute timeout, to allow for compilation and loading.
-    cargo build --release
 
     systemctl --user reset-failed node-$ID || true
 
@@ -87,15 +82,14 @@ run_node() {
         --description "Casper Dev Node ${ID}" \
         --no-block \
         --property=Type=notify \
-        --property=TimeoutSec=600 \
+        --property=TimeoutSec=10 \
         --property=WorkingDirectory=${BASEDIR} \
         $DEPS \
         --setenv=RUST_LOG=info \
         --property=StandardOutput=file:${LOGFILE} \
         --property=StandardError=file:${LOGFILE}.stderr \
-        --property=LimitDATA=infinity \  # FIXME
         -- \
-        cargo run --release -p casper-node \
+        ${BASEDIR}/target/release/casper-node \
         validator \
         resources/local/config.toml \
         --config-ext=network.systemd_support=true \
@@ -124,8 +118,10 @@ for ID in $NODES; do
    echo "${HEX_KEY},${MOTES},${WEIGHT}" >> ${ACCOUNTS_CSV}
 done;
 
-# Setup config
+# We compile in a seperate step, since we use resource limits for the actual process.
+cargo build --release
 
+# Setup and run nodes
 for i in $NODES; do
     run_node $i
 done;
