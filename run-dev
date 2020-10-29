@@ -172,7 +172,7 @@ class Namespace:
 
                 # Setup networking/IPs
                 bootstrap_addr = "127.0.0.1:{}".format(self.bootstrap_port)
-                config["network"]["gossip_interval"] = "1000"
+                config["network"]["gossip_interval"] = 1000
                 config["network"]["known_addresses"] = [bootstrap_addr]
                 config["network"]["systemd_support"] = True
                 config["http_server"]["address"] = "127.0.0.1:{}".format(
@@ -265,7 +265,20 @@ class Namespace:
             if id not in self.nodes:
                 raise RunDevError("node ID {} is invalid".format(id))
 
-            deps = [] if id == 0 else ["{}_node-{}".format(self.name, self.node_name(1))]
+            service_name = "{}.service".format(self.node_name(id))
+
+            if unit_exists(service_name):
+                # Unit already exists. Check if it is healthy.
+                if unit_is_active(service_name):
+                    info("{} is already running, skipping. stop it first if you want to restart", service_name)
+                    continue
+
+                # Unit is _not_ healthy. Clean it up
+                progress("resetting failed {} before starting", service_name)
+                subprocess.check_call(["systemctl", "--user", "reset-failed", service_name])
+
+
+            deps = [] if id == 0 else [self.node_name(0)]
             if id != 0:
                 deps
 
@@ -293,10 +306,18 @@ class Namespace:
             )
 
     def stop_nodes(self, *ids):
-        progress("stopping nodes {}".format(" ".join(str(id) for id in ids)))
+        for id in ids:
+            progress("stopping node {}", id)
+            service_name = "{}.service".format(self.node_name(id))
+            if not unit_exists(service_name):
+                info("{} does not exist, skipping", service_name)
+                continue
 
-        units = [self.node_name(id) for id in ids]
-        subprocess.call(["systemctl", "--user", "stop"] + units)
+            if not unit_is_active(service_name):
+                info("{} is not running, skipping", service_name)
+                continue
+
+            subprocess.call(["systemctl", "--user", "stop", service_name])
 
 
 @click.group()
@@ -442,6 +463,14 @@ def info(msg, *args):
     """Outputs information"""
     click.echo("   ", nl=False)
     click.secho(msg.format(*args), fg="white")
+
+
+def unit_exists(name):
+    output = subprocess.check_output(["systemctl", "--user", "list-units", "--all", name])
+    return name in output.decode('utf8')
+
+def unit_is_active(name):
+    return subprocess.call(["systemctl", "--user", "is-active", "--quiet", name]) == 0
 
 
 if __name__ == "__main__":
