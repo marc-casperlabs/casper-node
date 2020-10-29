@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+
+import os
+import shutil
+import subprocess
+
+import click
+
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+
+
+def run_client(*args):
+    return subprocess.check_call(
+        [
+            "cargo",
+            "run",
+            "--quiet",
+            "--manifest-path={}/client/Cargo.toml".format(BASE_DIR),
+            "--",
+        ]
+        + list(args)
+    )
+
+
+class RunDevError(Exception):
+    pass
+
+
+class Namespace:
+    def __init__(self, name, base_dir, num_nodes):
+        self.name = name
+        self.ns_dir = os.path.join(base_dir, name)
+        self.num_nodes = num_nodes
+        self.accounts_csv = os.path.join(self.ns_dir, "accounts.csv")
+
+        if not self.is_initialized():
+            self.is_mismatched = False
+        else:
+            self.num_nodes = len(open(self.accounts_csv).readlines())
+            self.is_mismatched = self.num_nodes != num_nodes
+
+    def destroy(self):
+        if self.is_initialized():
+            self.stop_nodes(*self.nodes())
+            print("destroying namespace {}".format(self.name))
+            shutil.rmtree(self.ns_dir)
+        else:
+            print("namespace {} does not exist".format(self.name))
+
+
+    def initialize_namespace(self):
+        if not self.is_initialized():
+            os.makedirs(self.ns_dir)
+
+            accounts = ""
+
+            # Generate keys for each node.
+            for i in range(self.num_nodes):
+                motes = 1000000000000000
+                weight = 10000000000000
+
+                key_dir = self.node_key_dir(i)
+                print("generating key for node {} [{}]".format(i, key_dir))
+                run_client("keygen", key_dir)
+                key_hex = open(os.path.join(key_dir, "public_key_hex")).read().strip()
+                print(
+                    "adding account {} with {} motes and {} weight".format(
+                        key_hex, motes, weight
+                    )
+                )
+                accounts += "{},{},{}\n".format(key_hex, motes, weight)
+
+            # Generate an accounts CSV
+            open(self.accounts_csv, "w").write(accounts)
+
+    def is_initialized(self):
+        return os.path.exists(self.accounts_csv)
+
+    def nodes(self):
+        return range(self.num_nodes)
+
+    def node_key_dir(self, node_id):
+        return os.path.join(self.ns_dir, "node-{}/keys".format(node_id))
+
+    def start_nodes(self, *ids):
+        self.initialize_namespace()
+        pass
+
+    def stop_nodes(self, *ids):
+        print("stopping nodes {}".format(ids))
+
+
+
+@click.group()
+@click.option(
+    "-b", "--base-dir", default="/tmp/run-dev", help="Base directory to store data in"
+)
+@click.option("--namespace", default="default", help="Namespace to run nodes in")
+@click.option(
+    "-n",
+    "--num-nodes",
+    default=5,
+    type=int,
+    help="Total number of nodes in the namespace",
+)
+@click.pass_context
+def cli(ctx, base_dir, namespace, num_nodes):
+    ctx.obj = Namespace(namespace, base_dir=base_dir, num_nodes=num_nodes)
+
+
+@cli.command()
+@click.argument("node_ids", nargs=-1)
+@click.pass_obj
+def start(namespace, node_ids):
+    if namespace.is_mismatched:
+        raise RunDevError(
+            "mismatch of namespace and number of nodes. if you want to change the network size, destroy the namespace first"
+        )
+
+    if not node_ids:
+        node_ids = tuple(namespace.nodes())
+        print(
+            "no node ids specified, assuming {}".format(
+                " ".join(str(id) for id in node_ids)
+            )
+        )
+
+    namespace.start_nodes(*node_ids)
+
+
+@cli.command()
+@click.pass_obj
+def destroy(namespace):
+    namespace.destroy()
+
+if __name__ == "__main__":
+    try:
+        cli()
+    except RunDevError as e:
+        print("error: {}".format(e))
