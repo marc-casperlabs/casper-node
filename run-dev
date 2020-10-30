@@ -259,7 +259,7 @@ class Node:
             if unit_is_active(self.unit):
                 info(
                     "{} is already running, skipping. stop it first if you want to restart",
-                    service_name,
+                    self.unit,
                 )
                 return
 
