@@ -4,6 +4,7 @@
 # available in all commonly used distros.
 
 from datetime import datetime, timedelta
+import json
 import os
 import random
 import shutil
@@ -238,6 +239,7 @@ class Node:
         config["node"]["chainspec_config_path"] = self.namespace.chainspec_toml
         config["consensus"]["secret_key_path"] = self.key_path
         config["storage"]["path"] = self.storage_dir
+        config["logging"]["format"] = "json"
 
         # Setup networking/IPs
         config["network"]["gossip_interval"] = 1000
@@ -293,7 +295,7 @@ class Node:
                 "LimitDATA": self.namespace.node_memory_limit,
             },
             deps=deps,
-            env={"RUST_LOG": "info",},
+            env={"RUST_LOG": "debug",},
             app_args=["validator", self.config_toml],
         )
 
@@ -313,14 +315,23 @@ class Node:
             state_changed = parse_systemd_timestamp(us["StateChangeTimestamp"])
             rv["since"] = human_timedelta((local_now -state_changed).total_seconds())
 
-        # TODO: Fill in active state.
         # We use the last line from stderr, unless the node did not crash.
         log_source = self.stderr
         if rv["state"] == "active":
             log_source = self.stdout
-
         if os.path.exists(log_source):
-            rv["info"] = ellipses(last_line_of_file(log_source), 35)
+            if log_source == self.stdout:
+                log_line = last_line_of_file(log_source)
+                if log_line:
+                    data = json.loads(log_line)
+                    fields = data["fields"]
+                    if "message" in fields:
+                        rv["info"] = fields["message"]
+                    else:
+                        rv["info"] = str(fields)
+            else:
+                # Stderr uses just abbreviated lines.
+                rv["info"] = ellipses(last_line_of_file(log_source), 35)
 
 
         return rv
