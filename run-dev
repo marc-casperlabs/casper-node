@@ -523,15 +523,22 @@ def top(namespace, node_ids, delay):
         state_table = curses.newwin(20, 80, 1, 0)
         state_table.bkgdset(" ", curses.color_pair(0))
         curses.start_color()
+        curses.cbreak()
         curses.curs_set(0)
+
         stdscr.bkgd(" ", curses.color_pair(1))
         stdscr.clear()
+
+        active_node = 1
 
         # Poll every 100 ms
         stdscr.timeout(100)
 
         # Color pair 1: Background
         curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLUE)
+
+        # Color pair 2: Active row.
+        curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_GREEN)
 
         keep_going = True
         while keep_going:
@@ -568,6 +575,8 @@ def top(namespace, node_ids, delay):
 
             # Draw status values
             for idx, row in enumerate(rows):
+                color = 0 if not idx == active_node else 2
+
                 for (col, (begin, end)) in columns.items():
                     width = end - begin
                     value = row[col]
@@ -575,7 +584,7 @@ def top(namespace, node_ids, delay):
                     if len(value) > width:
                         value = ellipses(value, length=width)
 
-                    state_table.addnstr(idx + 2, begin, value, width)
+                    state_table.addnstr(idx + 2, begin, value, width, curses.color_pair(color))
 
             # Draw status bar.
             stdscr.addstr(
@@ -603,6 +612,12 @@ def top(namespace, node_ids, delay):
                 # We read a char without a timeout, act on it.
                 if char == ord("q"):
                     keep_going = False
+                elif char == ord('`'):
+                    active_node = -1
+                elif char == curses.KEY_UP:
+                    active_node = max(active_node-1, 0)
+                elif char == curses.KEY_DOWN:
+                    active_node = min(active_node+1, len(rows)-1)
 
                 break
 
