@@ -277,7 +277,7 @@ class Node:
         config["logging"]["format"] = "json"
 
         # Setup networking/IPs
-        config["network"]["gossip_interval"] = 1000
+        config["network"]["gossip_interval"] = 5000
         config["network"]["systemd_support"] = True
         config["http_server"]["address"] = self.http_addr
 
