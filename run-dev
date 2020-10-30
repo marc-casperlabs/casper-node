@@ -70,7 +70,7 @@ class Namespace:
         # Precalculated paths and values.
         self.accounts_csv = os.path.abspath(os.path.join(self.ns_dir, "accounts.csv"))
         self.bootstrap_port = random.Random(self.name).randint(50000, 60000)
-        self.nodes = tuple(range(self.num_nodes))
+        self.nodes = tuple(Node(self, id) for id in range(self.num_nodes))
 
     def add_asset(self, input_path):
         """Copies a file into the namespace, returns the resulting path"""
@@ -84,72 +84,20 @@ class Namespace:
         shutil.copy(input_path, dest)
         return dest
 
-    def collect_node_ids(self, input_nodes):
-        if not input_nodes:
-            return self.nodes
-        return input_nodes
-
     def destroy(self):
         """Destroys a namespace, stopping all nodes and removing its data"""
         if self.is_initialized():
-            self.stop_nodes(*self.nodes)
+            for node in self.nodes:
+                node.stop()
             progress("destroying namespace {}".format(self.name))
             shutil.rmtree(self.ns_dir)
         else:
             info("namespace {} does not exist".format(self.name))
 
-    def node_http_port(self, node_id):
-        """HTTP port for a node"""
-        base_port = 30000 + random.Random(self.name).randint(0, 100) * 200
-        return base_port + node_id
-
-    def load_chainspec(self):
-        """Loads a chainspec from an existing namespace"""
-        return toml.load(open(self.chainspec_toml))
-
-    def get_node_status(self, node_id):
-        state = "unknown"
-        info = ""
-
-        unit_name = self.node_unit(node_id)
-
-        if not unit_exists(unit_name):
-            state = "missing"
-        elif not unit_is_active(unit_name):
-            state = "inactive"
-        else:
-            state = "running"
-
-        return {
-            "state": state,
-            "info": info,
-        }
-
-    def initialize_namespace(self):
+    def initialize(self):
         """Initializes a namespace"""
         if not self.is_initialized():
             os.makedirs(self.ns_dir)
-
-            accounts = ""
-
-            # Generate keys for each node.
-            for i in self.nodes:
-                motes = 1000000000000000
-                weight = 10000000000000
-
-                key_dir = self.node_key_dir(i)
-                progress("generating key for node {} [{}]".format(i, key_dir))
-                run_client("keygen", key_dir)
-                key_hex = open(os.path.join(key_dir, "public_key_hex")).read().strip()
-                progress(
-                    "adding account {} with {} motes and {} weight".format(
-                        click.style(key_hex[:7], fg="cyan", reset=True), motes, weight
-                    )
-                )
-                accounts += "{},{},{}\n".format(key_hex, motes, weight)
-
-            # Generate an accounts CSV
-            open(self.accounts_csv, "w").write(accounts)
 
             # Setup a chainspec
             chainspec = toml.load(open(CHAINSPEC_TEMPLATE))
@@ -181,44 +129,23 @@ class Namespace:
             genesis_ts = create_timestamp(self.genesis_offset)
             chainspec["genesis"]["timestamp"] = genesis_ts
 
-            # Setup each nodes configuration
-            for id in self.nodes:
-                # Ensure the storage dir exists
-                storage_dir = self.node_storage_dir(id)
+            # Setup each node and write accounts file
+            accounts = open(self.accounts_csv, "w")
+            for node in self.nodes:
+                node.initialize()
 
-                if not os.path.exists(storage_dir):
-                    progress("creating storage dir for node {}", id)
-                    os.makedirs(storage_dir)
+                # Generate keys for each node and collect them in accounts.csv
+                motes = 1000000000000000
+                weight = 10000000000000
 
-                config = toml.load(open(CONFIG_TEMPLATE))
-                config["node"]["chainspec_config_path"] = self.chainspec_toml
-                config["consensus"]["secret_key_path"] = self.node_key_path(id)
-                config["storage"]["path"] = self.node_storage_dir(id)
-
-                # Setup networking/IPs
-                bootstrap_addr = "127.0.0.1:{}".format(self.bootstrap_port)
-                config["network"]["gossip_interval"] = 1000
-                config["network"]["known_addresses"] = [bootstrap_addr]
-                config["network"]["systemd_support"] = True
-                config["http_server"]["address"] = "127.0.0.1:{}".format(
-                    self.node_http_port(id)
-                )
-
-                if id == 1:
-                    # Bootstrap node.
-                    config["network"]["bind_address"] = bootstrap_addr
-                    config["network"]["public_address"] = bootstrap_addr
-                else:
-                    config["network"]["bind_address"] = "127.0.0.1:0"
-                    config["network"]["public_address"] = "127.0.0.1:0"
-
-                # Save config
                 progress(
-                    "saving node configuration for node {} [{}]",
-                    id,
-                    self.node_config_toml(id),
+                    "adding account {} with {} motes and {} weight".format(
+                        click.style(node.hex_key[:7], fg="cyan", reset=True),
+                        motes,
+                        weight,
+                    )
                 )
-                toml.dump(config, open(self.node_config_toml(id), "w"))
+                accounts.write("{},{},{}\n".format(node.hex_key, motes, weight))
 
     def is_initialized(self):
         """Returns whether or not the namespace has been intialized.
@@ -236,116 +163,157 @@ class Namespace:
 
         return False
 
-    def node_config_toml(self, node_id):
-        """Return the config.toml path of a node"""
-        return os.path.join(self.node_dir(node_id), "config.toml")
+    def nodes_by_ids(self, ids):
+        """Returns nodes by id.
 
-    def node_name(self, node_id):
-        """Return the unit-name of a node."""
-        return "{}_node-{}".format(self.name, node_id)
+        Returns all nodes if `ids` is empty"""
+        if not ids:
+            return self.nodes
+        return [self.nodes(id) for id in ids]
 
-    def node_dir(self, node_id):
-        """Return the base directory for a node."""
-        return os.path.join(self.ns_dir, "node-{}".format(node_id))
 
-    def node_key_dir(self, node_id):
-        """Return the key dir of a specific node ID"""
-        return os.path.join(self.node_dir(node_id), "keys")
+class Node:
+    def __init__(self, namespace, id):
+        # Basic info.
+        self.namespace = namespace
+        self.id = id
+        self.dir = os.path.join(namespace.ns_dir, "node-{}".format(id))
+        self.name = "{}_node-{}".format(namespace.name, id)
 
-    def node_key_path(self, node_id):
-        """Return the secret key path of a specific node ID"""
-        return os.path.join(self.node_dir(node_id), 'keys', 'secret_key.pem')
+        # Derived paths and names.
+        self.config_toml = os.path.join(self.dir, "config.toml")
+        self.key_dir = os.path.join(self.dir, "keys")
+        self.key_path = os.path.join(self.key_dir, "secret_key.pem")
+        self.storage_dir = os.path.join(self.dir, "storage")
+        self.stderr = os.path.join(self.dir, "stderr")
+        self.stdout = os.path.join(self.dir, "stdout")
+        self.unit = "{}.service".format(self.name)
 
-    def node_storage_dir(self, node_id):
-        """Return the storage dir of a specific node ID"""
-        return os.path.join(self.node_dir(node_id), 'storage')
+        # Ports.
+        self.http_port = (
+            30000 + random.Random(self.name).randint(0, 100) * 200 + self.id
+        )
 
-    def node_stderr(self, node_id):
-        """Logfile for nodes stdout"""
-        return os.path.join(self.node_dir(node_id), "stderr")
+        # Load key if possible.
+        self.try_load_hex_key()
 
-    def node_stdout(self, node_id):
-        """Logfile for nodes stderr"""
-        return os.path.join(self.node_dir(node_id), "stdout")
+    @property
+    def bootstrap_addr(self):
+        """Bootstrap address used by node."""
+        return self.namespace.bootstrap_addr
 
-    def node_unit(self, node_id):
-        return "{}.service".format(self.node_name(id))
+    def initialize(self):
+        """Initializes a node, including storage and config"""
+        # Generate a key
+        progress("generating key for node {} [{}]".format(self.id, self.key_dir))
+        run_client("keygen", self.key_dir)
+        self.try_load_hex_key()
 
-    def reset_nodes(self, *ids):
-        """Stop and reset state of nodes."""
-        self.stop_nodes(*ids)
-        for id in ids:
-            if os.path.exists(self.node_storage_dir(id)):
-                progress("removing storage of node {}", id)
-                shutil.rmtree(self.node_storage_dir(id))
-            if os.path.exists(self.node_stdout(id)):
-                progress("removing stdout log of node {}", id)
-                os.unlink(self.node_stdout(id))
-            if os.path.exists(self.node_stderr(id)):
-                progress("removing stderr log of node {}", id)
-                os.unlink(self.node_stderr(id))
+        # Ensure the storage dir exists
+        if not os.path.exists(self.storage_dir):
+            progress("creating storage dir for node {}", self.id)
+            os.makedirs(self.storage_dir)
 
-    def start_nodes(self, *ids):
+        # Create configuration
+        config = toml.load(open(CONFIG_TEMPLATE))
+        config["node"]["chainspec_config_path"] = self.namespace.chainspec_toml
+        config["consensus"]["secret_key_path"] = self.key_path
+        config["storage"]["path"] = self.storage_dir
+
+        # Setup networking/IPs
+        bootstrap_addr = "127.0.0.1:{}".format(self.namespace.bootstrap_port)
+        config["network"]["gossip_interval"] = 1000
+        config["network"]["known_addresses"] = [bootstrap_addr]
+        config["network"]["systemd_support"] = True
+        config["http_server"]["address"] = "127.0.0.1:{}".format(self.http_port)
+
+        if id == 1:
+            # Bootstrap node.
+            config["network"]["bind_address"] = bootstrap_addr
+            config["network"]["public_address"] = bootstrap_addr
+        else:
+            config["network"]["bind_address"] = "127.0.0.1:0"
+            config["network"]["public_address"] = "127.0.0.1:0"
+
+        # Save config
+        progress(
+            "saving node configuration for node {} [{}]", self.id, self.config_toml,
+        )
+        toml.dump(config, open(self.config_toml, "w"))
+
+    def start(self):
         """Start a node, without resetting its state."""
-        self.initialize_namespace()
+        if unit_exists(self.unit):
+            # Unit already exists. Check if it is healthy.
+            if unit_is_active(self.unit):
+                info(
+                    "{} is already running, skipping. stop it first if you want to restart",
+                    service_name,
+                )
+                return
 
-        for id in ids:
-            if id not in self.nodes:
-                raise RunDevError("node ID {} is invalid".format(id))
+            # Unit is _not_ healthy. Clean it up
+            progress("resetting failed {} before starting", self.unit)
+            subprocess.check_call(["systemctl", "--user", "reset-failed", self.unit])
 
-            service_name = self.node_unit_name(id)
+        deps = [] if id == 0 else [self.name]
+        if id != 0:
+            deps
 
-            if unit_exists(service_name):
-                # Unit already exists. Check if it is healthy.
-                if unit_is_active(service_name):
-                    info("{} is already running, skipping. stop it first if you want to restart", service_name)
-                    continue
+        progress("starting node {}", self.id)
+        systemd_run(
+            self.name,
+            "casperlabs node {} in namespace {}".format(self.id, self.namespace.name),
+            node_path(),
+            properties={
+                "Type": "notify",
+                "TimeoutSec": 10,
+                "WorkingDirectory": self.dir,
+                "StandardOutput": "file:{}".format(self.stdout),
+                "StandardError": "file:{}".format(self.stderr),
+                "LimitDATA": "400M",  # TODO Make configurable
+            },
+            deps=deps,
+            env={"RUST_LOG": "info",},
+            app_args=["validator", self.config_toml],
+        )
 
-                # Unit is _not_ healthy. Clean it up
-                progress("resetting failed {} before starting", service_name)
-                subprocess.check_call(["systemctl", "--user", "reset-failed", service_name])
+    def status(self):
+        state = "unknown"
+        info = ""
 
+        if not unit_exists(self.unit):
+            state = "missing"
+        elif not unit_is_active(self.unit):
+            state = "inactive"
+        else:
+            state = "running"
 
-            deps = [] if id == 0 else [self.node_name(0)]
-            if id != 0:
-                deps
+        return {
+            "id": self.id,
+            "state": state,
+            "info": info,
+        }
 
-            progress("starting node {}", id)
-            systemd_run(
-                self.node_name(id),
-                "casperlabs node {} in namespace {}".format(id, self.name),
-                node_path(),
-                properties = {
-                    'Type': 'notify',
-                    'TimeoutSec': 10,
-                    'WorkingDirectory': self.node_dir(id),
-                    'StandardOutput': 'file:{}'.format(self.node_stdout(id)),
-                    'StandardError': 'file:{}'.format(self.node_stderr(id)),
-                    'LimitDATA': '400M',  # TODO Make configurable
-                },
-                deps=deps,
-                env={
-                    'RUST_LOG': 'info',
-                },
-                app_args=[
-                    'validator',
-                    self.node_config_toml(id),
-                ]
-            )
+    def stop(self):
+        """Stops the node, retaining logs and state."""
+        progress("stopping node {}", self.id)
 
-    def stop_nodes(self, *ids):
-        for id in ids:
-            progress("stopping node {}", id)
-            service_name = self.node_unit_name(id)
-            if not unit_exists(service_name):
-                info("{} does not exist, skipping", service_name)
-                continue
+        if not unit_exists(self.unit):
+            info("{} does not exist, skipping", self.unit)
+            return
 
-            if not unit_is_active(service_name):
-                info("{} is not running, skipping", service_name)
-                continue
+        if not unit_is_active(self.unit):
+            info("{} is not running, skipping", self.unit)
+            return
 
-            subprocess.call(["systemctl", "--user", "stop", service_name])
+        subprocess.call(["systemctl", "--user", "stop", self.unit])
+
+    def try_load_hex_key(self):
+        """Tries to load and set the hex key of the node"""
+        hex_key_path = os.path.join(self.key_dir, "public_key_hex")
+        if os.path.exists(hex_key_path):
+            self.hex_key = open(hex_key_path).read().strip()
 
 
 @click.group()
@@ -390,7 +358,7 @@ def create(namespace, force):
             raise RunDevError("namespace already initialized")
         namespace.destroy()
 
-    namespace.initialize_namespace()
+    namespace.initialize()
 
 
 @cli.command()
@@ -399,11 +367,10 @@ def create(namespace, force):
 def start(namespace, node_ids):
     """Start a specific (or all) nodes in the namespace"""
     if not namespace.is_initialized():
-        namespace.initialize_namespace()
+        namespace.initialize()
 
-    node_ids = namespace.collect_node_ids(node_ids)
-
-    namespace.start_nodes(*node_ids)
+    for node in namespace.nodes_by_ids(node_ids):
+        node.start()
 
 
 @cli.command()
@@ -414,13 +381,12 @@ def status(namespace, node_ids):
     if not namespace.is_initialized():
         raise RunDevError("namespace not initialized, cannot get node status")
 
-    node_ids = namespace.collect_node_ids(node_ids)
-    statuses = [(id, namespace.get_node_status(id)) for id in node_ids]
-
     tpl = "{id:4}  {state:8}  {info}"
     print(tpl.format(id="Node", state="State", info="Info"))
-    for (id, status) in statuses:
-        print(tpl.format(id=id, **status))
+
+    for node in namespace.nodes_by_ids(node_ids):
+        status = node.status()
+        print(tpl.format(**status))
 
 
 @cli.command()
@@ -431,8 +397,8 @@ def stop(namespace, node_ids):
     if not namespace.is_initialized():
         raise RunDevError("cannot stop nodes, no namespace initialized")
 
-    node_ids = namespace.collect_node_ids(node_ids)
-    namespace.stop_nodes(*node_ids)
+    for node in namespace.nodes_by_ids(node_ids):
+        node.stop()
 
 
 @cli.command()
@@ -464,6 +430,7 @@ def create_timestamp(offset):
 def systemd_run(
     name, description, binary, properties={}, deps=[], run_args=[], app_args=[], env={}
 ):
+    """Calls systemd-run with various arguments"""
     args = [
         "systemd-run",
         "--quiet",
@@ -506,10 +473,15 @@ def info(msg, *args):
 
 
 def unit_exists(name):
-    output = subprocess.check_output(["systemctl", "--user", "list-units", "--all", name])
-    return name in output.decode('utf8')
+    """Checks if a unit exists on systemd"""
+    output = subprocess.check_output(
+        ["systemctl", "--user", "list-units", "--all", name]
+    )
+    return name in output.decode("utf8")
+
 
 def unit_is_active(name):
+    """Checks if a unit is active (i.e. running) on systemd"""
     return subprocess.call(["systemctl", "--user", "is-active", "--quiet", name]) == 0
 
 
