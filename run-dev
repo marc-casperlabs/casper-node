@@ -206,7 +206,12 @@ class Node:
     @property
     def bootstrap_addr(self):
         """Bootstrap address used by node."""
-        return self.namespace.bootstrap_addr
+        return "127.0.0.1:{}".format(self.namespace.bootstrap_port)
+
+    @property
+    def is_bootstrap(self):
+        """Is this node a bootstrap node?"""
+        return self.id == 0
 
     def initialize(self):
         """Initializes a node, including storage and config"""
@@ -227,17 +232,17 @@ class Node:
         config["storage"]["path"] = self.storage_dir
 
         # Setup networking/IPs
-        bootstrap_addr = "127.0.0.1:{}".format(self.namespace.bootstrap_port)
         config["network"]["gossip_interval"] = 1000
-        config["network"]["known_addresses"] = [bootstrap_addr]
         config["network"]["systemd_support"] = True
         config["http_server"]["address"] = "127.0.0.1:{}".format(self.http_port)
 
-        if id == 1:
+        if self.is_bootstrap:
             # Bootstrap node.
-            config["network"]["bind_address"] = bootstrap_addr
-            config["network"]["public_address"] = bootstrap_addr
+            config["network"]["bind_address"] = self.bootstrap_addr
+            config["network"]["public_address"] = self.bootstrap_addr
+            config["network"]["known_addresses"] = []
         else:
+            config["network"]["known_addresses"] = [self.bootstrap_addr]
             config["network"]["bind_address"] = "127.0.0.1:0"
             config["network"]["public_address"] = "127.0.0.1:0"
 
