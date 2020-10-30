@@ -437,16 +437,28 @@ def start(namespace, node_ids):
 
 @cli.command()
 @click.argument("node_ids", type=int, nargs=-1)
-@click.option("-t", "--top", is_flag=True, help="Keep updating state")
+@click.pass_obj
+def stop(namespace, node_ids):
+    """Stop a specific (or all) nodes in the namespace"""
+    if not namespace.is_initialized():
+        raise RunDevError("cannot stop nodes, no namespace initialized")
+
+    for node in namespace.nodes_by_ids(node_ids):
+        node.stop()
+
+
+@cli.command()
+@click.argument("node_ids", type=int, nargs=-1)
+@click.option("-o", "--once", is_flag=True, help="Exit after one update")
 @click.option("-n", "--delay", type=float, default=1.0, help="Update frequency")
 @click.pass_obj
-def status(namespace, node_ids, top, delay):
+def top(namespace, node_ids, once, delay):
     """Output status information about nodes"""
     if not namespace.is_initialized():
         raise RunDevError("namespace not initialized, cannot get node status")
 
     while True:
-        if top:
+        if not once:
             click.clear()
 
         term_width = shutil.get_terminal_size((80, 20)).columns
@@ -454,7 +466,7 @@ def status(namespace, node_ids, top, delay):
         local_now = datetime.now()
         rows = [node.status(local_now) for node in namespace.nodes_by_ids(node_ids)]
 
-        if not rows and not top:
+        if not rows:
             return
 
         max_widths = {
@@ -488,22 +500,10 @@ def status(namespace, node_ids, top, delay):
                 click.echo(" ", nl=False)
             click.echo("")
 
-        if not top:
+        if once:
             break
         else:
             time.sleep(delay)
-
-
-@cli.command()
-@click.argument("node_ids", type=int, nargs=-1)
-@click.pass_obj
-def stop(namespace, node_ids):
-    """Stop a specific (or all) nodes in the namespace"""
-    if not namespace.is_initialized():
-        raise RunDevError("cannot stop nodes, no namespace initialized")
-
-    for node in namespace.nodes_by_ids(node_ids):
-        node.stop()
 
 
 @cli.command()
