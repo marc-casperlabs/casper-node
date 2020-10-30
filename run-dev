@@ -170,13 +170,20 @@ class Namespace:
 
         return False
 
+    def node_by_id(self, id):
+        """Returns a single node by id."""
+        if id >= len(self.nodes):
+            raise RunDevError("No such node: {}".format(id))
+        return self.nodes[id]
+
     def nodes_by_ids(self, ids):
         """Returns nodes by id.
 
         Returns all nodes if `ids` is empty"""
         if not ids:
             return self.nodes
-        return [self.nodes[id] for id in ids]
+
+        return [self.node_by_id(id) for id in ids]
 
 
 class Node:
@@ -400,7 +407,7 @@ def logs(namespace, node_id, stderr):
     if not namespace.is_initialized():
         raise RunDevError("cannot stop nodes, no namespace initialized")
 
-    node = namespace.nodes[node_id]
+    node = namespace.node_by_id(node_id)
     log_file = node.stderr if stderr else node.stdout
 
     shutil.copyfileobj(open(log_file, 'rb'), sys.stdout.buffer)
