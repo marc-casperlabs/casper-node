@@ -140,7 +140,7 @@ class Namespace:
             chainspec["genesis"]["validator_slots"] = self.validator_slots
 
             # Setup genesis timestamp
-            genesis_ts = create_timestamp(self.genesis_offset)
+            genesis_ts = create_timestamp(self.genesis_offset, datetime.utcnow())
             chainspec["genesis"]["timestamp"] = genesis_ts
 
             # Save the updated chainspec.
@@ -194,6 +194,14 @@ class Namespace:
             return self.nodes
 
         return [self.node_by_id(id) for id in ids]
+
+    def seconds_until_genesis(self, utc_now):
+        """Returns the number of seconds until genesis"""
+        # TODO: Factor out.
+        chainspec = toml.load(open(self.chainspec_toml))
+        timestamp = datetime.fromisoformat(chainspec["genesis"]["timestamp"].rstrip('Z'))
+
+        return (timestamp - utc_now).total_seconds()
 
 
 class Node:
@@ -510,12 +518,14 @@ def top(namespace, node_ids, once, delay):
         raise RunDevError("namespace not initialized, cannot get node status")
 
     while True:
+        now = datetime.utcnow()
+        local_now = datetime.now()
+
         if not once:
             click.clear()
 
         term_width = shutil.get_terminal_size((80, 20)).columns
 
-        local_now = datetime.now()
         rows = [node.status(local_now) for node in namespace.nodes_by_ids(node_ids)]
 
         if not rows:
@@ -538,14 +548,14 @@ def top(namespace, node_ids, once, delay):
         for header in rows[0].keys():
             click.echo(header.upper().ljust(max_widths[header]), nl=False)
             click.echo(" ", nl=False)
-        click.echo("")
+        click.echo()
 
         # Title separator
         for header in rows[0].keys():
             click.echo("-" * max_widths[header], nl=False)
             click.echo(" ", nl=False)
 
-        click.echo("")
+        click.echo()
 
         for row in rows:
             for key, value in row.items():
@@ -554,7 +564,10 @@ def top(namespace, node_ids, once, delay):
                     value = ellipses(value)
                 click.echo(value.ljust(max_widths[key]), nl=False)
                 click.echo(" ", nl=False)
-            click.echo("")
+            click.echo()
+
+        click.echo()
+        click.echo("Genesis in: {}".format(human_timedelta(namespace.seconds_until_genesis(now))))
 
         if once:
             break
@@ -583,9 +596,9 @@ def run_client(*args):
     )
 
 
-def create_timestamp(offset):
+def create_timestamp(offset, utc_now):
     """Creates a chainspec-compatible timestamp with an offset given in seconds"""
-    return (datetime.utcnow() + timedelta(seconds=offset)).isoformat("T") + "Z"
+    return (utc_now + timedelta(seconds=offset)).isoformat("T") + "Z"
 
 
 def systemd_run(
