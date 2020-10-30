@@ -175,7 +175,7 @@ class Namespace:
         Returns all nodes if `ids` is empty"""
         if not ids:
             return self.nodes
-        return [self.nodes(id) for id in ids]
+        return [self.nodes[id] for id in ids]
 
 
 class Node:
