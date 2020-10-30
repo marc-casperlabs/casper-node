@@ -132,6 +132,9 @@ class Namespace:
             genesis_ts = create_timestamp(self.genesis_offset)
             chainspec["genesis"]["timestamp"] = genesis_ts
 
+            # Save the updated chainspec.
+            toml.dump(chainspec, open(self.chainspec_toml, 'w'))
+
             # Setup each node and write accounts file
             accounts = open(self.accounts_csv, "w")
             for node in self.nodes:
