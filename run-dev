@@ -279,6 +279,7 @@ class Node:
         )
 
     def status(self, local_now):
+        """Returns status information of a node"""
         rv = {
             "id": str(self.id),
             "state": "",
@@ -289,6 +290,14 @@ class Node:
         us = get_unit(self.unit)
         rv["state"] = us["ActiveState"]
         state_changed = parse_systemd_timestamp(us["StateChangeTimestamp"])
+
+        # TODO: Fill in active state.
+        # We use the last line from stderr, unless the node did not crash.
+        log_source = self.stderr
+        if rv["state"] == "XXXXXX":
+            log_source = self.stdout
+
+        rv["info"] = ellipses(last_line_of_file(log_source), 35)
 
         rv["since"] = human_timedelta((local_now -state_changed).total_seconds())
 
@@ -359,6 +368,20 @@ def create(namespace, force):
 
     namespace.initialize()
 
+
+@cli.command()
+@click.argument("node_id", type=int)
+@click.option("-e", "--stderr", is_flag=True, help="Show stderr logs instead of stdout")
+@click.pass_obj
+def logs(namespace, node_id, stderr):
+    """Stop a specific (or all) nodes in the namespace"""
+    if not namespace.is_initialized():
+        raise RunDevError("cannot stop nodes, no namespace initialized")
+
+    node = namespace.nodes[node_id]
+    log_file = node.stderr if stderr else node.stdout
+
+    shutil.copyfileobj(open(log_file, 'rb'), sys.stdout.buffer)
 
 @cli.command()
 @click.argument("node_ids", type=int, nargs=-1)
@@ -549,6 +572,30 @@ def get_unit(name):
     pairs = (line.split("=", 1) for line in lines if line.strip())
 
     return {key: value for key, value in pairs}
+
+
+def last_line_of_file(filename):
+    """Returns the last line of a file if it is within 1kb"""
+    f = open(filename, 'rb')
+    length = f.seek(0, 2)
+    f.seek(max(length-1024, 0))
+    tail_lines = [line for line in f.read().splitlines() if line.strip()]
+
+    if not tail_lines:
+        return ""
+
+    return tail_lines[-1].decode("UTF8")
+
+
+def ellipses(s, length=50):
+    """Ellipses text"""
+    if length < 4:
+        length = 4
+
+    if len(s) <= length:
+        return s
+
+    return s[:length-3] + "..."
 
 
 if __name__ == "__main__":
