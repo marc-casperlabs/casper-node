@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-# run-dev.sh successor. Requires python `click` and `toml` packages installed, which should be
-# available in all commonly used distros.
+# run-dev.sh successor. Requires python `click`, `requests` and `toml` packages installed, which
+# should be available in all commonly used distros.
 
 from datetime import datetime, timedelta
 import json
@@ -58,7 +58,15 @@ class RunDevError(Exception):
 
 
 class Namespace:
-    def __init__(self, name, base_dir, num_nodes, genesis_offset, validator_slots, node_memory_limit):
+    def __init__(
+        self,
+        name,
+        base_dir,
+        num_nodes,
+        genesis_offset,
+        validator_slots,
+        node_memory_limit,
+    ):
         """A namespace containing all data required to run a full network.
 
         Includes configuration files and runtime state for all nodes, as well as chainspec data"""
@@ -135,7 +143,7 @@ class Namespace:
             chainspec["genesis"]["timestamp"] = genesis_ts
 
             # Save the updated chainspec.
-            toml.dump(chainspec, open(self.chainspec_toml, 'w'))
+            toml.dump(chainspec, open(self.chainspec_toml, "w"))
 
             # Setup each node and write accounts file
             accounts = open(self.accounts_csv, "w")
@@ -217,6 +225,17 @@ class Node:
         """Bootstrap address used by node."""
         return "127.0.0.1:{}".format(self.namespace.bootstrap_port)
 
+    def describe(self):
+        """Return select attributes from the node"""
+        return {
+            key: getattr(self, key)
+            for key in ("id", "name", "http_addr", "key_dir", "config_toml")
+        }
+
+    @property
+    def http_addr(self):
+        return "127.0.0.1:{}".format(self.http_port)
+
     @property
     def is_bootstrap(self):
         """Is this node a bootstrap node?"""
@@ -244,7 +263,7 @@ class Node:
         # Setup networking/IPs
         config["network"]["gossip_interval"] = 1000
         config["network"]["systemd_support"] = True
-        config["http_server"]["address"] = "127.0.0.1:{}".format(self.http_port)
+        config["http_server"]["address"] = self.http_addr
 
         if self.is_bootstrap:
             # Bootstrap node.
@@ -313,7 +332,7 @@ class Node:
 
         if "StateChangeTimestamp" in us:
             state_changed = parse_systemd_timestamp(us["StateChangeTimestamp"])
-            rv["since"] = human_timedelta((local_now -state_changed).total_seconds())
+            rv["since"] = human_timedelta((local_now - state_changed).total_seconds())
 
         # We use the last line from stderr, unless the node did not crash.
         log_source = self.stderr
@@ -332,7 +351,6 @@ class Node:
             else:
                 # Stderr uses just abbreviated lines.
                 rv["info"] = ellipses(last_line_of_file(log_source), 35)
-
 
         return rv
 
@@ -373,7 +391,7 @@ class Node:
 @click.option(
     "-m",
     "--memory-limit",
-    'node_memory_limit',
+    "node_memory_limit",
     default="400M",
     help="(for new namespace) Memory limit per node",
 )
@@ -411,6 +429,18 @@ def create(namespace, force):
 
 @cli.command()
 @click.argument("node_id", type=int)
+@click.pass_obj
+def describe(namespace, node_id):
+    """Output information about a single node"""
+    if not namespace.is_initialized():
+        namespace.initialize()
+
+    description = namespace.node_by_id(node_id).describe()
+    json.dump(description, sys.stdout, indent=2, sort_keys=True)
+
+
+@cli.command()
+@click.argument("node_id", type=int)
 @click.option("-e", "--stderr", is_flag=True, help="Show stderr logs instead of stdout")
 @click.pass_obj
 def logs(namespace, node_id, stderr):
@@ -421,7 +451,8 @@ def logs(namespace, node_id, stderr):
     node = namespace.node_by_id(node_id)
     log_file = node.stderr if stderr else node.stdout
 
-    shutil.copyfileobj(open(log_file, 'rb'), sys.stdout.buffer)
+    shutil.copyfileobj(open(log_file, "rb"), sys.stdout.buffer)
+
 
 @cli.command()
 @click.argument("node_ids", type=int, nargs=-1)
@@ -470,13 +501,17 @@ def top(namespace, node_ids, once, delay):
             return
 
         max_widths = {
-            col: max(len(row[col]) for row in rows + [{key: key for key in rows[0].keys()}])
+            col: max(
+                len(row[col]) for row in rows + [{key: key for key in rows[0].keys()}]
+            )
             for col in rows[0].keys()
         }
 
         # Make info row as wide as possible.
         max_widths["info"] = 0
-        max_widths["info"] = max(10, term_width - sum(max_widths.values()) - len(max_widths))
+        max_widths["info"] = max(
+            10, term_width - sum(max_widths.values()) - len(max_widths)
+        )
 
         # Print headings.
         for header in rows[0].keys():
@@ -592,13 +627,13 @@ def unit_is_active(name):
 
 def parse_systemd_timestamp(ts):
     """Returns the systemd timestamp as a `datetime` IN LOCAL TIME"""
-    weekday, remainder = ts.split(' ', 1)
-    return datetime.strptime(remainder, '%Y-%m-%d %H:%M:%S %Z')
+    weekday, remainder = ts.split(" ", 1)
+    return datetime.strptime(remainder, "%Y-%m-%d %H:%M:%S %Z")
 
 
 def human_timedelta(secs):
     """Format a delta given in seconds human readable"""
-    DAY = 24*3600
+    DAY = 24 * 3600
     HOUR = 3600
     MINUTE = 60
 
@@ -636,9 +671,9 @@ def get_unit(name):
 
 def last_line_of_file(filename):
     """Returns the last line of a file if it is within 1kb"""
-    f = open(filename, 'rb')
+    f = open(filename, "rb")
     length = f.seek(0, 2)
-    f.seek(max(length-1024, 0))
+    f.seek(max(length - 1024, 0))
     tail_lines = [line for line in f.read().splitlines() if line.strip()]
 
     if not tail_lines:
@@ -655,7 +690,7 @@ def ellipses(s, length=50):
     if len(s) <= length:
         return s
 
-    return s[:length-3] + "..."
+    return s[: length - 3] + "..."
 
 
 if __name__ == "__main__":
