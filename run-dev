@@ -437,41 +437,52 @@ def start(namespace, node_ids):
 
 @cli.command()
 @click.argument("node_ids", type=int, nargs=-1)
+@click.option("-t", "--top", is_flag=True, help="Keep updating state")
+@click.option("-n", "--delay", type=float, default=1.0, help="Update frequency")
 @click.pass_obj
-def status(namespace, node_ids):
+def status(namespace, node_ids, top, delay):
     """Output status information about nodes"""
     if not namespace.is_initialized():
         raise RunDevError("namespace not initialized, cannot get node status")
 
-    local_now = datetime.now()
-    rows = [node.status(local_now) for node in namespace.nodes_by_ids(node_ids)]
+    while True:
+        if top:
+            click.clear()
 
-    if not rows:
-        return
+        local_now = datetime.now()
+        rows = [node.status(local_now) for node in namespace.nodes_by_ids(node_ids)]
 
-    max_widths = {
-        col: max(len(row[col]) for row in rows + [{key: key for key in rows[0].keys()}])
-        for col in rows[0].keys()
-    }
+        if not rows and not top:
+            return
 
-    # Print headings.
-    for header in rows[0].keys():
-        click.echo(header.upper().ljust(max_widths[header]), nl=False)
-        click.echo(" ", nl=False)
-    click.echo("")
+        max_widths = {
+            col: max(len(row[col]) for row in rows + [{key: key for key in rows[0].keys()}])
+            for col in rows[0].keys()
+        }
 
-    # Title separator
-    for header in rows[0].keys():
-        click.echo("-" * max_widths[header], nl=False)
-        click.echo(" ", nl=False)
-
-    click.echo("")
-
-    for row in rows:
-        for key, value in row.items():
-            click.echo(value.ljust(max_widths[key]), nl=False)
+        # Print headings.
+        for header in rows[0].keys():
+            click.echo(header.upper().ljust(max_widths[header]), nl=False)
             click.echo(" ", nl=False)
         click.echo("")
+
+        # Title separator
+        for header in rows[0].keys():
+            click.echo("-" * max_widths[header], nl=False)
+            click.echo(" ", nl=False)
+
+        click.echo("")
+
+        for row in rows:
+            for key, value in row.items():
+                click.echo(value.ljust(max_widths[key]), nl=False)
+                click.echo(" ", nl=False)
+            click.echo("")
+
+        if not top:
+            break
+        else:
+            time.sleep(delay)
 
 
 @cli.command()
