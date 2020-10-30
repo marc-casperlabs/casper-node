@@ -529,7 +529,7 @@ def top(namespace, node_ids, delay):
         stdscr.bkgd(" ", curses.color_pair(1))
         stdscr.clear()
 
-        active_node = 1
+        active_node = -1
 
         # Poll every 100 ms
         stdscr.timeout(100)
@@ -618,7 +618,12 @@ def top(namespace, node_ids, delay):
                     active_node = max(active_node-1, 0)
                 elif char == curses.KEY_DOWN:
                     active_node = min(active_node+1, len(rows)-1)
-
+                elif char == ord('l') and active_node != -1:
+                    node = namespace.node_by_id(active_node)
+                    subprocess.call(["less", node.stdout])
+                elif char == ord('L') and active_node != -1:
+                    node = namespace.node_by_id(active_node)
+                    subprocess.call(["less", node.stderr])
                 break
 
     curses.wrapper(run_top)
