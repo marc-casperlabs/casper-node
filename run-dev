@@ -4,6 +4,7 @@
 # should be available in all commonly used distros.
 
 import atexit
+import curses
 from datetime import datetime, timedelta
 import json
 import os
@@ -510,75 +511,63 @@ def stop(namespace, node_ids):
 
 @cli.command()
 @click.argument("node_ids", type=int, nargs=-1)
-@click.option("-o", "--once", is_flag=True, help="Exit after one update")
 @click.option("-n", "--delay", type=float, default=1.0, help="Update frequency")
 @click.pass_obj
-def top(namespace, node_ids, once, delay):
+def top(namespace, node_ids,  delay):
     """Output status information about nodes"""
     if not namespace.is_initialized():
         raise RunDevError("namespace not initialized, cannot get node status")
 
-    if not once:
-        atexit.register(set_cursor_visible, True)
+    def run_top(stdscr):
+        state_table = curses.newwin(20, 80, 2, 2)
+        state_table.addstr(0, 0, "hello")
 
-    while True:
-        now = datetime.utcnow()
-        local_now = datetime.now()
 
-        if not once:
-            click.clear()
+        while True:
+            now = datetime.utcnow()
+            local_now = datetime.now()
 
-        term_width = shutil.get_terminal_size((80, 20)).columns
+            # Update the status table
+            state_table.clear()
+            _, table_width = state_table.getmaxyx()
 
-        rows = [node.status(local_now) for node in namespace.nodes_by_ids(node_ids)]
+            # Coordinates for columns (start, end)
+            columns = {
+                "id": (0,3),
+                "state": (4,10),
+                "since": (11,22),
+                "peers": (23,27),
+                "last_block": (28,38),
+                "info": (39, max(40, table_width)),
+            }
 
-        if not rows:
-            return
+            rows = [node.status(local_now) for node in namespace.nodes_by_ids(node_ids)]
 
-        max_widths = {
-            col: max(
-                len(row[col]) for row in rows + [{key: key for key in rows[0].keys()}]
-            )
-            for col in rows[0].keys()
-        }
+            # Draw headings.
+            for (col, (begin, end)) in columns.items():
+                width =end-begin
+                state_table.addnstr(0, begin, col.upper(), width)
+                state_table.addnstr(1, begin, '=' * width, width)
 
-        # Make info row as wide as possible.
-        max_widths["info"] = 0
-        max_widths["info"] = max(
-            10, term_width - sum(max_widths.values()) - len(max_widths)
-        )
+            # Draw status values
+            for idx, row in enumerate(rows):
+                for (col, (begin, end)) in columns.items():
+                    width = end-begin
+                    value = row[col]
 
-        # Print headings.
-        for header in rows[0].keys():
-            click.echo(header.upper().ljust(max_widths[header]), nl=False)
-            click.echo(" ", nl=False)
-        click.echo()
+                    if len(value) > width:
+                        value = ellipses(value, length=width)
 
-        # Title separator
-        for header in rows[0].keys():
-            click.echo("-" * max_widths[header], nl=False)
-            click.echo(" ", nl=False)
+                    state_table.addnstr(idx+2, begin, value, width)
 
-        click.echo()
 
-        for row in rows:
-            for key, value in row.items():
-                width = max_widths[key]
-                if len(value) > width:
-                    value = ellipses(value)
-                click.echo(value.ljust(max_widths[key]), nl=False)
-                click.echo(" ", nl=False)
-            click.echo()
+            # TODO:
+            # click.echo("Genesis in: {}".format(human_timedelta(namespace.seconds_until_genesis(now))))
 
-        click.echo()
-        click.echo("Genesis in: {}".format(human_timedelta(namespace.seconds_until_genesis(now))))
-
-        if once:
-            break
-        else:
-            set_cursor_visible(False)
-
+            state_table.refresh()
             time.sleep(delay)
+
+    curses.wrapper(run_top)
 
 
 @cli.command()
@@ -733,15 +722,6 @@ def ellipses(s, length=50):
         return s
 
     return s[: length - 3] + "..."
-
-
-def set_cursor_visible(visible=False):
-    if not visible:
-        sys.stdout.write("\033[?25l")
-        sys.stdout.flush()
-    else:
-        sys.stdout.write("\033[?25h")
-        sys.stdout.flush()
 
 
 if __name__ == "__main__":
