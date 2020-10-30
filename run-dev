@@ -5,6 +5,7 @@ import os
 import random
 import shutil
 import subprocess
+import sys
 import time
 
 import click
@@ -277,22 +278,21 @@ class Node:
             app_args=["validator", self.config_toml],
         )
 
-    def status(self):
-        state = "unknown"
-        info = ""
-
-        if not unit_exists(self.unit):
-            state = "missing"
-        elif not unit_is_active(self.unit):
-            state = "inactive"
-        else:
-            state = "running"
-
-        return {
-            "id": self.id,
-            "state": state,
-            "info": info,
+    def status(self, local_now):
+        rv = {
+            "id": str(self.id),
+            "state": "",
+            "since": "",
+            "info": "",
         }
+
+        us = get_unit(self.unit)
+        rv["state"] = us["ActiveState"]
+        state_changed = parse_systemd_timestamp(us["StateChangeTimestamp"])
+
+        rv["since"] = human_timedelta((local_now -state_changed).total_seconds())
+
+        return rv
 
     def stop(self):
         """Stops the node, retaining logs and state."""
@@ -380,12 +380,35 @@ def status(namespace, node_ids):
     if not namespace.is_initialized():
         raise RunDevError("namespace not initialized, cannot get node status")
 
-    tpl = "{id:4}  {state:8}  {info}"
-    print(tpl.format(id="Node", state="State", info="Info"))
+    local_now = datetime.now()
+    rows = [node.status(local_now) for node in namespace.nodes_by_ids(node_ids)]
 
-    for node in namespace.nodes_by_ids(node_ids):
-        status = node.status()
-        print(tpl.format(**status))
+    if not rows:
+        return
+
+    max_widths = {
+        col: max(len(row[col]) for row in rows + [{key: key for key in rows[0].keys()}])
+        for col in rows[0].keys()
+    }
+
+    # Print headings.
+    for header in rows[0].keys():
+        click.echo(header.upper().ljust(max_widths[header]), nl=False)
+        click.echo(" ", nl=False)
+    click.echo("")
+
+    # Title separator
+    for header in rows[0].keys():
+        click.echo("-" * max_widths[header], nl=False)
+        click.echo(" ", nl=False)
+
+    click.echo("")
+
+    for row in rows:
+        for key, value in row.items():
+            click.echo(value.ljust(max_widths[key]), nl=False)
+            click.echo(" ", nl=False)
+        click.echo("")
 
 
 @cli.command()
@@ -484,8 +507,53 @@ def unit_is_active(name):
     return subprocess.call(["systemctl", "--user", "is-active", "--quiet", name]) == 0
 
 
+def parse_systemd_timestamp(ts):
+    """Returns the systemd timestamp as a `datetime` IN LOCAL TIME"""
+    weekday, remainder = ts.split(' ', 1)
+    return datetime.strptime(remainder, '%Y-%m-%d %H:%M:%S %Z')
+
+
+def human_timedelta(secs):
+    """Format a delta given in seconds human readable"""
+    DAY = 24*3600
+    HOUR = 3600
+    MINUTE = 60
+
+    secs = int(secs)
+
+    output = ""
+
+    if secs > DAY:
+        output += "{}d ".format(secs // DAY)
+        secs %= DAY
+
+    if secs > HOUR:
+        output += "{}h ".format(secs // HOUR)
+        secs %= HOUR
+
+    if secs > MINUTE:
+        output += "{}m ".format(secs // MINUTE)
+        secs %= MINUTE
+
+    output += "{}s".format(secs)
+
+    return output
+
+
+def get_unit(name):
+    """Get systemd information about a unit"""
+    lines = subprocess.check_output(
+        ["systemctl", "--user", "show", name], universal_newlines=True
+    ).split("\n")
+
+    pairs = (line.split("=", 1) for line in lines if line.strip())
+
+    return {key: value for key, value in pairs}
+
+
 if __name__ == "__main__":
     """Main entry point"""
+
     try:
         cli()
     except RunDevError as e:
