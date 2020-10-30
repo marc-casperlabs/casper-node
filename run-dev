@@ -3,6 +3,7 @@
 # run-dev.sh successor. Requires python `click`, `requests` and `toml` packages installed, which
 # should be available in all commonly used distros.
 
+import atexit
 from datetime import datetime, timedelta
 import json
 import os
@@ -358,7 +359,7 @@ class Node:
             log_source = self.stdout
         if os.path.exists(log_source):
             if log_source == self.stdout:
-                log_line = last_line_of_file(log_source)
+                log_line = last_lines_of_file(log_source)
                 if log_line:
                     data = json.loads(log_line)
                     fields = data["fields"]
@@ -368,7 +369,7 @@ class Node:
                         rv["info"] = str(fields)
             else:
                 # Stderr uses just abbreviated lines.
-                rv["info"] = ellipses(last_line_of_file(log_source), 35)
+                rv["info"] = ellipses(last_lines_of_file(log_source), 35)
 
         # Active nodes we can query as well
         if rv["state"] == "active":
@@ -517,6 +518,9 @@ def top(namespace, node_ids, once, delay):
     if not namespace.is_initialized():
         raise RunDevError("namespace not initialized, cannot get node status")
 
+    if not once:
+        atexit.register(set_cursor_visible, True)
+
     while True:
         now = datetime.utcnow()
         local_now = datetime.now()
@@ -572,6 +576,8 @@ def top(namespace, node_ids, once, delay):
         if once:
             break
         else:
+            set_cursor_visible(False)
+
             time.sleep(delay)
 
 
@@ -703,11 +709,13 @@ def get_unit(name):
     return {key: value for key, value in pairs}
 
 
-def last_line_of_file(filename):
+def last_lines_of_file(filename, n_lines=1):
     """Returns the last line of a file if it is within 1kb"""
+    BUFFER_PER_LINE = 1024
+
     f = open(filename, "rb")
     length = f.seek(0, 2)
-    f.seek(max(length - 1024, 0))
+    f.seek(max(length - BUFFER_PER_LINE * n_lines, 0))
     tail_lines = [line for line in f.read().splitlines() if line.strip()]
 
     if not tail_lines:
@@ -725,6 +733,15 @@ def ellipses(s, length=50):
         return s
 
     return s[: length - 3] + "..."
+
+
+def set_cursor_visible(visible=False):
+    if not visible:
+        sys.stdout.write("\033[?25l")
+        sys.stdout.flush()
+    else:
+        sys.stdout.write("\033[?25h")
+        sys.stdout.flush()
 
 
 if __name__ == "__main__":
