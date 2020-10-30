@@ -449,6 +449,8 @@ def status(namespace, node_ids, top, delay):
         if top:
             click.clear()
 
+        term_width = shutil.get_terminal_size((80, 20)).columns
+
         local_now = datetime.now()
         rows = [node.status(local_now) for node in namespace.nodes_by_ids(node_ids)]
 
@@ -459,6 +461,10 @@ def status(namespace, node_ids, top, delay):
             col: max(len(row[col]) for row in rows + [{key: key for key in rows[0].keys()}])
             for col in rows[0].keys()
         }
+
+        # Make info row as wide as possible.
+        max_widths["info"] = 0
+        max_widths["info"] = max(10, term_width - sum(max_widths.values()) - len(max_widths))
 
         # Print headings.
         for header in rows[0].keys():
@@ -475,6 +481,9 @@ def status(namespace, node_ids, top, delay):
 
         for row in rows:
             for key, value in row.items():
+                width = max_widths[key]
+                if len(value) > width:
+                    value = ellipses(value)
                 click.echo(value.ljust(max_widths[key]), nl=False)
                 click.echo(" ", nl=False)
             click.echo("")
