@@ -519,17 +519,33 @@ def top(namespace, node_ids,  delay):
         raise RunDevError("namespace not initialized, cannot get node status")
 
     def run_top(stdscr):
-        state_table = curses.newwin(20, 80, 2, 2)
-        state_table.addstr(0, 0, "hello")
+        state_table = curses.newwin(20, 80, 1, 0)
+        state_table.bkgdset(' ', curses.color_pair(0))
+        curses.start_color()
+        curses.curs_set(0)
+        stdscr.bkgd(' ', curses.color_pair(1))
+        stdscr.clear()
 
+        # Poll every 100 ms
+        stdscr.timeout(100)
 
-        while True:
+        # Color pair 1: Background
+        curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLUE)
+
+        keep_going = True
+        while keep_going:
             now = datetime.utcnow()
             local_now = datetime.now()
 
+            rows = [node.status(local_now) for node in namespace.nodes_by_ids(node_ids)]
+
+            # Update screen geometry.
+            screen_rows, screen_cols = stdscr.getmaxyx()
+            state_table.resize(max(screen_rows-2, len(rows)+3), max(80, screen_cols))
+
             # Update the status table
-            state_table.clear()
             _, table_width = state_table.getmaxyx()
+            state_table.clear()
 
             # Coordinates for columns (start, end)
             columns = {
@@ -540,8 +556,6 @@ def top(namespace, node_ids,  delay):
                 "last_block": (28,38),
                 "info": (39, max(40, table_width)),
             }
-
-            rows = [node.status(local_now) for node in namespace.nodes_by_ids(node_ids)]
 
             # Draw headings.
             for (col, (begin, end)) in columns.items():
@@ -564,8 +578,24 @@ def top(namespace, node_ids,  delay):
             # TODO:
             # click.echo("Genesis in: {}".format(human_timedelta(namespace.seconds_until_genesis(now))))
 
+            stdscr.refresh()
             state_table.refresh()
-            time.sleep(delay)
+
+            entered = time.time()
+            while True:
+                char = stdscr.getch()
+
+                if char == -1:
+                    if time.time() - entered > delay:
+                        break
+                    else:
+                        continue
+
+                # We read a char without a timeout, act on it.
+                if char == ord('q'):
+                    keep_going = False
+
+                break
 
     curses.wrapper(run_top)
 
