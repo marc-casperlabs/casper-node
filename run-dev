@@ -57,7 +57,7 @@ class RunDevError(Exception):
 
 
 class Namespace:
-    def __init__(self, name, base_dir, num_nodes, genesis_offset, validator_slots):
+    def __init__(self, name, base_dir, num_nodes, genesis_offset, validator_slots, node_memory_limit):
         """A namespace containing all data required to run a full network.
 
         Includes configuration files and runtime state for all nodes, as well as chainspec data"""
@@ -69,6 +69,7 @@ class Namespace:
         self.num_nodes = num_nodes
         self.genesis_offset = genesis_offset
         self.validator_slots = validator_slots
+        self.node_memory_limit = node_memory_limit
 
         # Precalculated paths and values.
         self.accounts_csv = os.path.abspath(os.path.join(self.ns_dir, "accounts.csv"))
@@ -282,7 +283,7 @@ class Node:
                 "WorkingDirectory": self.dir,
                 "StandardOutput": "file:{}".format(self.stdout),
                 "StandardError": "file:{}".format(self.stderr),
-                "LimitDATA": "400M",  # TODO Make configurable
+                "LimitDATA": self.namespace.node_memory_limit,
             },
             deps=deps,
             env={"RUST_LOG": "info",},
@@ -346,17 +347,24 @@ class Node:
     "--namespace", "name", default="default", help="Namespace to run nodes in"
 )
 @click.option(
+    "-g",
+    "--genesis-offset",
+    default=15,
+    help="(for new namespace) Offset for genesis in seconds",
+)
+@click.option(
+    "-m",
+    "--memory-limit",
+    'node_memory_limit',
+    default="400M",
+    help="(for new namespace) Memory limit per node",
+)
+@click.option(
     "-n",
     "--num-nodes",
     default=5,
     type=int,
     help="(for new namespace) Total number of nodes in the namespace",
-)
-@click.option(
-    "-g",
-    "--genesis-offset",
-    default=15,
-    help="(for new namespace) Offset for genesis in seconds",
 )
 @click.option(
     "--validator-slots",
