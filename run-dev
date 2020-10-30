@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+# run-dev.sh successor. Requires python `click` and `toml` packages installed, which should be
+# available in all commonly used distros.
+
 from datetime import datetime, timedelta
 import os
 import random
@@ -289,7 +292,10 @@ class Node:
 
         us = get_unit(self.unit)
         rv["state"] = us["ActiveState"]
-        state_changed = parse_systemd_timestamp(us["StateChangeTimestamp"])
+
+        if "StateChangeTimestamp" in us:
+            state_changed = parse_systemd_timestamp(us["StateChangeTimestamp"])
+            rv["since"] = human_timedelta((local_now -state_changed).total_seconds())
 
         # TODO: Fill in active state.
         # We use the last line from stderr, unless the node did not crash.
@@ -297,9 +303,9 @@ class Node:
         if rv["state"] == "XXXXXX":
             log_source = self.stdout
 
-        rv["info"] = ellipses(last_line_of_file(log_source), 35)
+        if os.path.exists(log_source):
+            rv["info"] = ellipses(last_line_of_file(log_source), 35)
 
-        rv["since"] = human_timedelta((local_now -state_changed).total_seconds())
 
         return rv
 
