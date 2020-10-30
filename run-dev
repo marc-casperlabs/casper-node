@@ -18,7 +18,7 @@ CONFIG_TEMPLATE = os.path.join(BASE_DIR, "resources", "local", "config.toml")
 #     TODO systemctl --user reset-failed node-$ID || true
 #         TRUSTED_HASH_ARG=--config-ext=node.trusted_hash="${TRUSTED_HASH}"
 
-# Singleton holding the path of a compiled node. Use `node_path()` instead.
+#: Singleton holding the path of a compiled node. Use `node_path()` instead.
 _node_path = None
 
 
@@ -28,7 +28,6 @@ def node_path():
 
     if not _node_path:
         progress("compiling casper-node")
-        # Compile once (and only once).
         subprocess.check_call(
             [
                 "cargo",
@@ -69,7 +68,7 @@ class Namespace:
 
         # Precalculated paths and values.
         self.accounts_csv = os.path.abspath(os.path.join(self.ns_dir, "accounts.csv"))
-        self.bootstrap_port = random.Random(self.name).randint(50000, 60000)
+        self.bootstrap_port = random.Random(self.name).randint(60000, 65000)
         self.nodes = tuple(Node(self, id) for id in range(self.num_nodes))
 
     def add_asset(self, input_path):
@@ -191,7 +190,7 @@ class Node:
 
         # Ports.
         self.http_port = (
-            30000 + random.Random(self.name).randint(0, 100) * 200 + self.id
+            30000 + random.Random(self.name).randint(0, 150) * 200 + self.id
         )
 
         # Load key if possible.
