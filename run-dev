@@ -27,12 +27,14 @@ def node_path():
     global _node_path
 
     if not _node_path:
+        progress("compiling casper-node")
         # Compile once (and only once).
         subprocess.check_call(
             [
                 "cargo",
                 "build",
                 "--release",
+                "--quiet",
                 "--manifest-path={}".format(
                     os.path.join(BASE_DIR, "node", "Cargo.toml")
                 ),
@@ -82,6 +84,11 @@ class Namespace:
         shutil.copy(input_path, dest)
         return dest
 
+    def collect_node_ids(self, input_nodes):
+        if not input_nodes:
+            return self.nodes
+        return input_nodes
+
     def destroy(self):
         """Destroys a namespace, stopping all nodes and removing its data"""
         if self.is_initialized():
@@ -99,6 +106,24 @@ class Namespace:
     def load_chainspec(self):
         """Loads a chainspec from an existing namespace"""
         return toml.load(open(self.chainspec_toml))
+
+    def get_node_status(self, node_id):
+        state = "unknown"
+        info = ""
+
+        unit_name = self.node_unit(node_id)
+
+        if not unit_exists(unit_name):
+            state = "missing"
+        elif not unit_is_active(unit_name):
+            state = "inactive"
+        else:
+            state = "running"
+
+        return {
+            "state": state,
+            "info": info,
+        }
 
     def initialize_namespace(self):
         """Initializes a namespace"""
@@ -243,6 +268,9 @@ class Namespace:
         """Logfile for nodes stderr"""
         return os.path.join(self.node_dir(node_id), "stdout")
 
+    def node_unit(self, node_id):
+        return "{}.service".format(self.node_name(id))
+
     def reset_nodes(self, *ids):
         """Stop and reset state of nodes."""
         self.stop_nodes(*ids)
@@ -265,7 +293,7 @@ class Namespace:
             if id not in self.nodes:
                 raise RunDevError("node ID {} is invalid".format(id))
 
-            service_name = "{}.service".format(self.node_name(id))
+            service_name = self.node_unit_name(id)
 
             if unit_exists(service_name):
                 # Unit already exists. Check if it is healthy.
@@ -308,7 +336,7 @@ class Namespace:
     def stop_nodes(self, *ids):
         for id in ids:
             progress("stopping node {}", id)
-            service_name = "{}.service".format(self.node_name(id))
+            service_name = self.node_unit_name(id)
             if not unit_exists(service_name):
                 info("{} does not exist, skipping", service_name)
                 continue
@@ -373,12 +401,26 @@ def start(namespace, node_ids):
     if not namespace.is_initialized():
         namespace.initialize_namespace()
 
-    if not node_ids:
-        node_ids = tuple(namespace.nodes)
-        info("no node ids specified, assuming {}", " ".join(str(id) for id in node_ids))
+    node_ids = namespace.collect_node_ids(node_ids)
 
     namespace.start_nodes(*node_ids)
 
+
+@cli.command()
+@click.argument("node_ids", type=int, nargs=-1)
+@click.pass_obj
+def status(namespace, node_ids):
+    """Output status information about nodes"""
+    if not namespace.is_initialized():
+        raise RunDevError("namespace not initialized, cannot get node status")
+
+    node_ids = namespace.collect_node_ids(node_ids)
+    statuses = [(id, namespace.get_node_status(id)) for id in node_ids]
+
+    tpl = "{id:4}  {state:8}  {info}"
+    print(tpl.format(id="Node", state="State", info="Info"))
+    for (id, status) in statuses:
+        print(tpl.format(id=id, **status))
 
 
 @cli.command()
@@ -389,10 +431,7 @@ def stop(namespace, node_ids):
     if not namespace.is_initialized():
         raise RunDevError("cannot stop nodes, no namespace initialized")
 
-    if not node_ids:
-        node_ids = tuple(namespace.nodes)
-        info("no node ids specified, assuming {}", " ".join(str(id) for id in node_ids))
-
+    node_ids = namespace.collect_node_ids(node_ids)
     namespace.stop_nodes(*node_ids)
 
 
@@ -427,6 +466,7 @@ def systemd_run(
 ):
     args = [
         "systemd-run",
+        "--quiet",
         "--user",
         "--unit",
         name,
