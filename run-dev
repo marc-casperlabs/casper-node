@@ -316,7 +316,7 @@ class Node:
         # TODO: Fill in active state.
         # We use the last line from stderr, unless the node did not crash.
         log_source = self.stderr
-        if rv["state"] == "XXXXXX":
+        if rv["state"] == "active":
             log_source = self.stdout
 
         if os.path.exists(log_source):
