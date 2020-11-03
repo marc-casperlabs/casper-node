@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# nix-shell -p python3Packages.click -p python3Packages.black -p python3Packages.toml -p python3Packages.requests
+
 # run-dev.sh successor. Requires python `click`, `requests` and `toml` packages installed, which
 # should be available in all commonly used distros.
 
