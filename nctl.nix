@@ -58,7 +58,8 @@ let
   binScript = pkgs.writeShellScriptBin "nctl" ''
     #!${pkgs.bash}/bin/bash
 
-    set -e
+    # It's tempting to add the -e here, but `nctl` is NOT prepared to check errors =(
+    # set -e
 
     # TODO: Maybe not enumerate build-inputs manually here?
     export PATH=${pkgs.jq}/bin:${pkgs.bash}/bin:${pkgs.gnumake}/bin:${pkgs.python3}/bin:${pkgs.python3Packages.supervisor}/bin:''${PATH}
