@@ -15,19 +15,19 @@ chainspec_config_path = '../../../chainspec/chainspec.toml'
 # =================================
 [logging]
 
-# Abbreviate module names in text output.  Has no effect if format = 'json'.
-abbreviate_modules = false
+# Output format.  Possible values are 'text' or 'json'.
+format = 'text'
 
 # Colored output.  Has no effect if format = 'json'.
 color = false
 
-# Output format.  Possible values are 'text' or 'json'.
-format = 'json'
+# Abbreviate module names in text output.  Has no effect if format = 'json'.
+abbreviate_modules = false
 
 
-# ====================================
+# ===================================
 # Configuration options for consensus
-# ====================================
+# ===================================
 [consensus]
 
 # Path (absolute, or relative to this config.toml) to validator's secret key file used to sign
@@ -72,20 +72,47 @@ systemd_support = false
 
 
 # =============================================
-# Configuration options for the HTTP API server
+# Configuration options for the JSON-RPC HTTP server
 # =============================================
-[http_server]
+[rpc_server]
 
-# Listening address for HTTP server.  If the port is set to 0, a random port will be used.
+# Listening address for JSON-RPC HTTP server.  If the port is set to 0, a random port will be used.
 #
 # If the specified port cannot be bound to, a random port will be tried instead.  If binding fails,
-# the HTTP server will not run, but the node will be otherwise unaffected.
+# the JSON-RPC HTTP server will not run, but the node will be otherwise unaffected.
 #
 # The actual bound address will be reported via a log line if logging is enabled.
 address = '0.0.0.0:{HTTP_SERVER_BIND_PORT}'
 
-# The number of event-stream events to buffer.
+# =============================================
+# Configuration options for the REST HTTP server
+# =============================================
+[rest_server]
+
+# Listening address for REST HTTP server.  If the port is set to 0, a random port will be used.
+#
+# If the specified port cannot be bound to, a random port will be tried instead.  If binding fails,
+# the REST HTTP server will not run, but the node will be otherwise unaffected.
+#
+# The actual bound address will be reported via a log line if logging is enabled.
+address = '0.0.0.0:8888'
+
+# =============================================
+# Configuration options for the SSE HTTP event stream server
+# =============================================
+[event_stream_server]
+
+# Listening address for SSE HTTP event stream server.  If the port is set to 0, a random port will be used.
+#
+# If the specified port cannot be bound to, a random port will be tried instead.  If binding fails,
+# the SSE HTTP event stream server will not run, but the node will be otherwise unaffected.
+#
+# The actual bound address will be reported via a log line if logging is enabled.
+address = '0.0.0.0:9999'
+
+# The number of event stream events to buffer.
 event_stream_buffer_length = 100
+
 
 # ===============================================
 # Configuration options for the storage component
@@ -160,6 +187,7 @@ gossip_request_timeout_secs = 10
 # from a peer which gossiped information about that data to this node.
 get_remainder_timeout_secs = 5
 
+
 # ===================================
 # Configuration options for fetcher
 # ===================================
@@ -188,4 +216,3 @@ get_from_peer_timeout = 3
 #
 # The size should be a multiple of the OS page size.
 #max_global_state_size = 805306368000
-
