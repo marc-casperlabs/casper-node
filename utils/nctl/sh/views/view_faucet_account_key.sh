@@ -33,5 +33,5 @@ net=${net:-1}
 # Main
 #######################################
 
-declare path_key=$NCTL/assets/net-$net/faucet/public_key_hex
+declare path_key=$NCTL_DATA/assets/net-$net/faucet/public_key_hex
 log "net-$net :: faucet key: "$(cat $path_key)

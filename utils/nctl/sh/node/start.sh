@@ -22,13 +22,13 @@ unset node
 for ARGUMENT in "$@"
 do
     KEY=$(echo $ARGUMENT | cut -f1 -d=)
-    VALUE=$(echo $ARGUMENT | cut -f2 -d=)   
+    VALUE=$(echo $ARGUMENT | cut -f2 -d=)
     case "$KEY" in
         loglevel) loglevel=${VALUE} ;;
         net) net=${VALUE} ;;
         node) node=${VALUE} ;;
-        *)   
-    esac    
+        *)
+    esac
 done
 
 # Set defaults.
@@ -45,7 +45,7 @@ node=${node:-"all"}
 export RUST_LOG=$loglevel
 
 # Reset logs.
-source $NCTL/sh/node/log_reset.sh net=$net node=$node  
+source $NCTL/sh/node/log_reset.sh net=$net node=$node
 
 # Set daemon handler.
 if [ $NCTL_DAEMON_TYPE = "supervisord" ]; then
@@ -56,7 +56,7 @@ fi
 # ... all nodes:
 if [ $node = "all" ]; then
     log "network #$net: starting bootstraps ... "
-    source $NCTL/assets/net-$net/vars
+    source $NCTL_DATA/assets/net-$net/vars
     for node_idx in $(seq 1 $NCTL_NET_NODE_COUNT)
     do
         if [ $node_idx -le $NCTL_NET_BOOTSTRAP_COUNT ]; then

@@ -41,7 +41,7 @@ user=${user:-1}
 #######################################
 
 state_root_hash=$(get_state_root_hash $net $node)
-account_key=$(cat $NCTL/assets/net-$net/users/user-$user/public_key_hex)
+account_key=$(cat $NCTL_DATA/assets/net-$net/users/user-$user/public_key_hex)
 source $NCTL/sh/views/view_chain_account.sh net=$net node=$node \
     root-hash=$state_root_hash \
     account-key=$account_key

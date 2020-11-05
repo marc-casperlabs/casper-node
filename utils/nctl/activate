@@ -5,6 +5,12 @@
 # Set here.
 export NCTL="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# Set the data directory and ensure it exists
+if [ -z NCTL_DATA ]; then
+  export NCTL_DATA=NCTL
+fi;
+mkdir -p ${NCTL_DATA}
+
 # Set node root.
 export NCTL_CASPER_HOME="$( cd "$( dirname "${NCTL[0]}" )" && pwd )"
 export NCTL_CASPER_HOME="$( cd "$( dirname "${NCTL_CASPER_HOME[0]}" )" && pwd )"

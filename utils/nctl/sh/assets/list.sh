@@ -4,6 +4,6 @@
 # Globals:
 #   NCTL - path to nctl home directory.
 
-if [ -d $NCTL/assets ]; then
-    ls $NCTL/assets
+if [ -d $NCTL_DATA/assets ]; then
+    ls $NCTL_DATA/assets
 fi

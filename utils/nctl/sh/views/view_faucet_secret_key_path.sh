@@ -33,5 +33,5 @@ net=${net:-1}
 # Main
 #######################################
 
-declare path_key=$NCTL/assets/net-$net/faucet/secret_key.pem
+declare path_key=$NCTL_DATA/assets/net-$net/faucet/secret_key.pem
 log "net-$net :: faucet secret key: "$path_key

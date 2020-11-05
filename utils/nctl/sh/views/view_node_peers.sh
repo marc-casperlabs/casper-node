@@ -58,7 +58,7 @@ node=${node:-"all"}
 #######################################
 
 if [ $node = "all" ]; then
-    source $NCTL/assets/net-$net/vars
+    source $NCTL_DATA/assets/net-$net/vars
     for node_idx in $(seq 1 $NCTL_NET_NODE_COUNT)
     do
         _view_peers $net $node_idx

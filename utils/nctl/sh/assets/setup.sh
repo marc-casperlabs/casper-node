@@ -290,7 +290,7 @@ export NCTL_NET_USER_COUNT=$5
 #######################################
 function _main() {
     # Set directory.
-    net_path=$NCTL/assets/net-$1
+    net_path=$NCTL_DATA/assets/net-$1
 
     # Teardown existing.
     if [ -d $net_path ]; then

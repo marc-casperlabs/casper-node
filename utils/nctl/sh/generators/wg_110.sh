@@ -59,7 +59,7 @@ user=${user:-1}
 #######################################
 
 # Set paths.
-path_net=$NCTL/assets/net-$net
+path_net=$NCTL_DATA/assets/net-$net
 path_contract=$path_net/bin/transfer_to_account_u512.wasm
 
 # Set counter-parties.
@@ -105,7 +105,7 @@ if [ $node = "all" ]; then
     transferred=0
     while [ $transferred -lt $transfers ];
     do
-        source $NCTL/assets/net-$net/vars
+        source $NCTL_DATA/assets/net-$net/vars
         for node_idx in $(seq 1 $NCTL_NET_NODE_COUNT)
         do
             node_address=$(get_node_address $net $node_idx)

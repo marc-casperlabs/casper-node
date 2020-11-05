@@ -48,6 +48,6 @@ fi
 source $daemon_mgr $net
 
 # Delete artefacts.
-rm -rf $NCTL/assets/net-$net
+rm -rf $NCTL_DATA/assets/net-$net
 
 log "network #$net: assets torn down."

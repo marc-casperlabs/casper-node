@@ -38,7 +38,7 @@ node=${node:-1}
 #######################################
 
 state_root_hash=$(get_state_root_hash $net $node)
-account_key=$(cat $NCTL/assets/net-$net/faucet/public_key_hex)
+account_key=$(cat $NCTL_DATA/assets/net-$net/faucet/public_key_hex)
 purse_uref=$(get_main_purse_uref $net $state_root_hash $account_key)
 source $NCTL/sh/views/view_chain_account_balance.sh net=$net node=$node \
     root-hash=$state_root_hash \

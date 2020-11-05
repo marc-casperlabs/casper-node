@@ -1,6 +1,6 @@
 # nctl Usage
 
-Once activated, nctl commands can be used to setup & control nodes within local test network(s).  Whilst most nctl users will tend to focus upon testing a single network, developers may wish to test multiple networks in parallel so as to observe behavioural differences induced as a result of altering either the network's configuration or its binary set.  
+Once activated, nctl commands can be used to setup & control nodes within local test network(s).  Whilst most nctl users will tend to focus upon testing a single network, developers may wish to test multiple networks in parallel so as to observe behavioural differences induced as a result of altering either the network's configuration or its binary set.
 
 This usage guide focusses upon the former use case, i.e. testing a single network, and thus all nctl commands described below are executed with their default values.  Please refer [here](commands.md) for full details of supported nctl commands.
 
@@ -14,13 +14,13 @@ nctl-compile
 
 ## Step 1: Create network assets.
 
-- Once network binaries are available proceed to setup test network assets.  The following command instantiates the full set of assets required to run a 5 node local network with 5 users.  The assets are copied to `$NCTL/assets/net-1`, where $NCTL is the nctl home directory.
+- Once network binaries are available proceed to setup test network assets.  The following command instantiates the full set of assets required to run a 5 node local network with 5 users.  The assets are copied to `$NCTL_DATA/assets/net-1`, where $NCTL_DATA is the nctl data directory.
 
 ```
 nctl-assets-setup
 ```
 
-- Examining the contents of `$NCTL/assets/net-1` you will observe the following (self-explanatory) sub-folders:
+- Examining the contents of `$NCTL_DATA/assets/net-1` you will observe the following (self-explanatory) sub-folders:
 
 ```
 /bin
@@ -31,7 +31,7 @@ nctl-assets-setup
 /users
 ```
 
-- Examining the contents of `$NCTL/assets/net-1/nodes/node-1`, i.e. node 1, you will observe the following (self-explanatory) sub-folders:
+- Examining the contents of `$NCTL_DATA/assets/net-1/nodes/node-1`, i.e. node 1, you will observe the following (self-explanatory) sub-folders:
 
 ```
 /config
@@ -40,7 +40,7 @@ nctl-assets-setup
 /storage
 ```
 
-- Examining the contents of `$NCTL/assets/net-1/users/user-1`, i.e. user 1, you will find both cryptographic keys & account public key (hex) files. 
+- Examining the contents of `$NCTL_DATA/assets/net-1/users/user-1`, i.e. user 1, you will find both cryptographic keys & account public key (hex) files.
 
 - Once assets have been created you are advised to review contents of toml files, i.e. `/chainspec/chainspec.toml` & the various `/nodes/node-X/config/node-config.toml` files.
 
@@ -49,18 +49,18 @@ nctl-assets-setup
 - If you wish to test modifications to a network's chainspec, you can:
 
 ```
-vi $NCTL/assets/net-1/chainspec/chainspec.toml
+vi $NCTL_DATA/assets/net-1/chainspec/chainspec.toml
 ```
 
 - If you wish to test modifications to a node's config, e.g. node 3, you can:
 
 ```
-vi $NCTL/assets/net-1/nodes/node-3/config/node-config.toml
+vi $NCTL_DATA/assets/net-1/nodes/node-3/config/node-config.toml
 ```
 
 ## Step 2: Start a node in interactive mode.
 
-- Starting a node interactively is useful to verify that the network assets have been correctly established and that the network is ready for testing.  
+- Starting a node interactively is useful to verify that the network assets have been correctly established and that the network is ready for testing.
 
 ```
 nctl-interactive
@@ -88,7 +88,7 @@ nctl-status
 
 ```
 # Restart all nodes.
-nctl-restart 
+nctl-restart
 
 # Restart node 1.
 nctl-restart node=1
@@ -98,7 +98,7 @@ nctl-restart node=1
 
 ```
 # Stop all nodes.
-nctl-stop 
+nctl-stop
 
 # Stop node 1.
 nctl-stop node=1
@@ -109,7 +109,7 @@ nctl-stop node=1
 Upon observation of a network behavioural anomaly you can dump relevant assets such as logs & configuration as follows:
 
 ```
-# Writes dumped files -> $NCTL/dumps/net-1
+# Writes dumped files -> $NCTL_DATA/dumps/net-1
 nctl-assets-dump
 ```
 

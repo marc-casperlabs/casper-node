@@ -38,7 +38,7 @@ node=${node:-1}
 #######################################
 
 # Set net vars.
-source $NCTL/assets/net-$net/vars
+source $NCTL_DATA/assets/net-$net/vars
 
 # Set daemon handler.
 if [ $NCTL_DAEMON_TYPE = "supervisord" ]; then

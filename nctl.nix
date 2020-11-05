@@ -91,6 +91,7 @@ let
     CMD=nctl-$*
     OLD_HOME=''${NCTL_CASPER_HOME}
 
+    export NCTL_DATA=''${HOME}/.nctl
     . ${nctlLib}/lib/nctl/activate
     export NCTL_CASPER_HOME=''${OLD_HOME}
 

@@ -38,11 +38,11 @@ node=${node:-"all"}
 #######################################
 
 if [ $node = "all" ]; then
-    source $NCTL/assets/net-$net/vars
+    source $NCTL_DATA/assets/net-$net/vars
     for node_id in $(seq 1 $NCTL_NET_NODE_COUNT)
     do
-        rm $NCTL/assets/net-$net/nodes/node-$node_id/logs/*.log > /dev/null 2>&1
+        rm $NCTL_DATA/assets/net-$net/nodes/node-$node_id/logs/*.log > /dev/null 2>&1
     done
 else
-    rm $NCTL/assets/net-$net/nodes/node-$node/logs/*.log > /dev/null 2>&1
+    rm $NCTL_DATA/assets/net-$net/nodes/node-$node/logs/*.log > /dev/null 2>&1
 fi

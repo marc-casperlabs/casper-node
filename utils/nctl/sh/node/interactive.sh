@@ -45,7 +45,7 @@ node=${node:-1}
 export RUST_LOG=$loglevel
 
 # Set path -> node config.
-path_config=$NCTL/assets/net-$net/nodes/node-$node/config/node-config.toml
+path_config=$NCTL_DATA/assets/net-$net/nodes/node-$node/config/node-config.toml
 
 # Start node in validator mode.
-$NCTL/assets/net-$net/bin/casper-node validator $path_config
+$NCTL_DATA/assets/net-$net/bin/casper-node validator $path_config

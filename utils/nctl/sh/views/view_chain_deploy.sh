@@ -40,7 +40,7 @@ node=${node:-1}
 # Main
 #######################################
 
-$NCTL/assets/net-$net/bin/casper-client get-deploy \
+$NCTL_DATA/assets/net-$net/bin/casper-client get-deploy \
     --node-address $(get_node_address $net $node) \
     $deploy_hash \
     | jq '.result'

@@ -19,7 +19,7 @@ source $NCTL/sh/utils/misc.sh
 #   User ordinal identifer.
 #######################################
 function _view_user_secret_key() {
-    declare path_key=$NCTL/assets/net-$1/users/user-$2/secret_key.pem
+    declare path_key=$NCTL_DATA/assets/net-$1/users/user-$2/secret_key.pem
     log "secret key :: net-$1:user-$2 -> "$path_key
 }
 
@@ -51,7 +51,7 @@ user=${user:-"all"}
 #######################################
 
 if [ $user = "all" ]; then
-    source $NCTL/assets/net-$net/vars
+    source $NCTL_DATA/assets/net-$net/vars
     for user_idx in $(seq 1 $NCTL_NET_USER_COUNT)
     do
         _view_user_secret_key $net $user_idx

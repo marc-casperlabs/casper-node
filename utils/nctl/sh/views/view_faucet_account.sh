@@ -45,7 +45,7 @@ node=${node:-1}
 #######################################
 
 state_root_hash=$(get_state_root_hash $net $node)
-account_key=$(cat $NCTL/assets/net-$net/faucet/public_key_hex)
+account_key=$(cat $NCTL_DATA/assets/net-$net/faucet/public_key_hex)
 
 source $NCTL/sh/views/view_chain_account.sh \
     net=$net node=$node \

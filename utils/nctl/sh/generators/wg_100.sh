@@ -76,7 +76,7 @@ function _dispatch_deploy() {
 }
 
 # Set paths.
-path_net=$NCTL/assets/net-$net
+path_net=$NCTL_DATA/assets/net-$net
 
 # Set counter-parties.
 cp1_secret_key=$path_net/faucet/secret_key.pem

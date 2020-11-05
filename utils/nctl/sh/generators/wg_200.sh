@@ -62,7 +62,7 @@ bidder_secret_key=$path_net/users/user-$user/secret_key.pem
 bidder_public_key=$(cat $path_net/users/user-$user/public_key_hex)
 contract_name="add_bid.wasm"
 node_address=$(get_node_address $net $node)
-path_net=$NCTL/assets/net-$net
+path_net=$NCTL_DATA/assets/net-$net
 path_client=$path_net/bin/casper-client
 path_contract=$path_net/bin/$contract_name
 

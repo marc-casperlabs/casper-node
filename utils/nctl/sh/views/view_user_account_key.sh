@@ -51,7 +51,7 @@ user=${user:-"all"}
 #######################################
 
 if [ $user = "all" ]; then
-    source $NCTL/assets/net-$net/vars
+    source $NCTL_DATA/assets/net-$net/vars
     for user_idx in $(seq 1 $NCTL_NET_USER_COUNT)
     do
         _view_user_account_key $net $user_idx

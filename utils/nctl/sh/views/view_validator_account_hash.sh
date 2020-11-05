@@ -19,7 +19,7 @@ source $NCTL/sh/utils/misc.sh
 #   User ordinal identifer.
 #######################################
 function _view_validator_account_hash() {
-    account_key=$(cat $NCTL/assets/net-$1/nodes/node-$2/keys/public_key_hex)
+    account_key=$(cat $NCTL_DATA/assets/net-$1/nodes/node-$2/keys/public_key_hex)
     log "account hash :: net-$1:validator-$2 -> "$(get_account_hash $account_key)
 }
 
@@ -51,7 +51,7 @@ node=${node:-"all"}
 #######################################
 
 if [ $node = "all" ]; then
-    source $NCTL/assets/net-$net/vars
+    source $NCTL_DATA/assets/net-$net/vars
     for node_idx in $(seq 1 $NCTL_NET_NODE_COUNT)
     do
         _view_validator_account_hash $net $node_idx

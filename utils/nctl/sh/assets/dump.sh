@@ -20,11 +20,11 @@ unset net
 for ARGUMENT in "$@"
 do
     KEY=$(echo $ARGUMENT | cut -f1 -d=)
-    VALUE=$(echo $ARGUMENT | cut -f2 -d=)   
+    VALUE=$(echo $ARGUMENT | cut -f2 -d=)
     case "$KEY" in
-        net) net=${VALUE} ;;        
-        *)   
-    esac    
+        net) net=${VALUE} ;;
+        *)
+    esac
 done
 
 # Set defaults.
@@ -37,8 +37,8 @@ net=${net:-1}
 log "network #$net: dumping transient assets ... please wait"
 
 # Set paths.
-path_assets=$NCTL/assets/net-$net
-path_dump=$NCTL/dumps/net-$net
+path_assets=$NCTL_DATA/assets/net-$net
+path_dump=$NCTL_DATA/dumps/net-$net
 
 # Set dump directory.
 if [ -d $path_dump ]; then

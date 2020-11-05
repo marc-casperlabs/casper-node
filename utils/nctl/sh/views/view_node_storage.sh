@@ -20,7 +20,7 @@ source $NCTL/sh/utils/misc.sh
 #######################################
 function _view_storage() {
     declare os_type="$(get_os)"
-    declare path_node_storage=$NCTL/assets/net-$1/nodes/node-$2/storage/*.db
+    declare path_node_storage=$NCTL_DATA/assets/net-$1/nodes/node-$2/storage/*.db
     log "network #$1 :: node #$2 :: storage stats:"
     if [[ $os_type == $_OS_LINUX* ]]; then
         ll $path_node_storage
@@ -57,7 +57,7 @@ node=${node:-"all"}
 #######################################
 
 if [ $node = "all" ]; then
-    source $NCTL/assets/net-$net/vars
+    source $NCTL_DATA/assets/net-$net/vars
     for node_idx in $(seq 1 $NCTL_NET_NODE_COUNT)
     do
         _view_storage $net $node_idx

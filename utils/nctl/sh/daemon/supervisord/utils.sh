@@ -6,7 +6,7 @@
 #   Network ordinal identifier.
 #######################################
 function get_path_net_supervisord_cfg() {
-    echo $NCTL/assets/net-$1/daemon/config/supervisord.conf
+    echo $NCTL_DATA/assets/net-$1/daemon/config/supervisord.conf
 }
 
 #######################################
@@ -17,7 +17,7 @@ function get_path_net_supervisord_cfg() {
 #   Network ordinal identifier.
 #######################################
 function get_path_net_supervisord_sock() {
-    echo $NCTL/assets/net-$1/daemon/socket/supervisord.sock
+    echo $NCTL_DATA/assets/net-$1/daemon/socket/supervisord.sock
 }
 
 #######################################
