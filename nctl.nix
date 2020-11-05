@@ -61,7 +61,7 @@ let
     set -e
 
     # TODO: Maybe not enumerate build-inputs manually here?
-    export PATH=${pkgs.jq}/bin:${pkgs.bash}/bin:${pkgs.gnumake}/bin:${pkgs.python3}/bin:''${PATH}
+    export PATH=${pkgs.jq}/bin:${pkgs.bash}/bin:${pkgs.gnumake}/bin:${pkgs.python3}/bin:${pkgs.python3Packages.supervisor}/bin:''${PATH}
 
     if [ $# -lt 1 ]; then
       echo "usage: nctl COMMAND [ARGS]"
