@@ -6,6 +6,7 @@
 mod condition_check_reactor;
 pub mod network;
 mod test_rng;
+mod three_stage_reactor;
 
 use std::{
     any::type_name,
