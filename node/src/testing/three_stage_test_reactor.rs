@@ -7,20 +7,21 @@ use std::{
 };
 
 use derive_more::From;
+use futures::FutureExt;
 use once_cell::sync::Lazy;
 use prometheus::Registry;
 use serde::Serialize;
 use thiserror::Error;
-use tokio::runtime::Handle;
 use tracing::warn;
 
 use crate::{
     components::consensus::EraSupervisor,
-    effect::{EffectBuilder, Effects},
+    effect::{EffectBuilder, EffectExt, Effects},
     reactor::{
-        initializer::Reactor as InitializerReactor, joiner::Reactor as JoinerReactor,
-        validator::Reactor as ValidatorReactor, wrap_effects, EventQueueHandle, QueueKind, Reactor,
-        Scheduler,
+        initializer::Reactor as InitializerReactor,
+        joiner::Reactor as JoinerReactor,
+        validator::{Reactor as ValidatorReactor, ValidatorInitConfig},
+        wrap_effects, EventQueueHandle, QueueKind, Reactor, Scheduler,
     },
     testing::network::NetworkedReactor,
     types::NodeId,
@@ -41,12 +42,16 @@ pub enum ThreeStageError {
 
 #[derive(Debug, From, Serialize)]
 pub enum ThreeStageTestEvent {
+    // Events wrapping internal reactor events.
     #[from]
     InitializerEvent(<InitializerReactor as Reactor>::Event),
     #[from]
     JoinerEvent(<JoinerReactor as Reactor>::Event),
     #[from]
     ValidatorEvent(<ValidatorReactor as Reactor>::Event),
+
+    // Events related to stage transitions.
+    JoinerFinalized(#[serde(skip_serializing)] ValidatorInitConfig),
 }
 
 impl Display for ThreeStageTestEvent {
@@ -60,6 +65,9 @@ impl Display for ThreeStageTestEvent {
             }
             ThreeStageTestEvent::ValidatorEvent(ev) => {
                 write!(f, "validator event: {}", ev)
+            }
+            ThreeStageTestEvent::JoinerFinalized(_) => {
+                write!(f, "joiner finalization complete")
             }
         }
     }
@@ -77,6 +85,11 @@ pub(crate) enum ThreeStageTestReactor {
         joiner_event_queue_handle: EventQueueHandle<<JoinerReactor as Reactor>::Event>,
         registry: Registry,
     },
+    JoinerFinalizing {
+        opt_validator_config: Option<ValidatorInitConfig>,
+        node_id: NodeId,
+        registry: Registry,
+    },
     Validator {
         validator_reactor: ValidatorReactor,
         validator_event_queue_handle: EventQueueHandle<<ValidatorReactor as Reactor>::Event>,
@@ -91,6 +104,7 @@ impl ThreeStageTestReactor {
             ThreeStageTestReactor::Joiner { joiner_reactor, .. } => {
                 Some(joiner_reactor.consensus())
             }
+            ThreeStageTestReactor::JoinerFinalizing { .. } => None,
             ThreeStageTestReactor::Validator {
                 validator_reactor, ..
             } => Some(validator_reactor.consensus()),
@@ -214,6 +228,20 @@ impl Reactor for ThreeStageTestReactor {
                 effects
             }
             (
+                ThreeStageTestEvent::JoinerFinalized(validator_config),
+                ThreeStageTestReactor::JoinerFinalizing {
+                    ref mut opt_validator_config,
+                    ..
+                },
+            ) => {
+                should_transition = true;
+
+                *opt_validator_config = Some(validator_config);
+
+                // No effects, just transitioning.
+                Effects::new()
+            }
+            (
                 ThreeStageTestEvent::ValidatorEvent(validator_event),
                 ThreeStageTestReactor::Validator {
                     ref mut validator_reactor,
@@ -239,6 +267,7 @@ impl Reactor for ThreeStageTestReactor {
                     ThreeStageTestReactor::Deactivated => "Deactivated",
                     ThreeStageTestReactor::Initializer { .. } => "Initializing",
                     ThreeStageTestReactor::Joiner { .. } => "Joining",
+                    ThreeStageTestReactor::JoinerFinalizing { .. } => "Finalizing joiner",
                     ThreeStageTestReactor::Validator { .. } => "Validating",
                 };
 
@@ -327,13 +356,31 @@ impl Reactor for ThreeStageTestReactor {
 
                     // `into_validator_config` is just waiting for networking sockets to shut down
                     // and will not stall on disabled event processing, so it is safe to block here.
-                    let validator_config = std::thread::spawn(move || {
-                        let mut tokio_runtime = tokio::runtime::Runtime::new().unwrap();
-                        tokio_runtime.block_on(joiner_reactor.into_validator_config())
-                    })
-                    .join()
-                    .unwrap();
+                    // Since shutting down the joiner is an `async` function, we offload it into an
+                    // effect and let runner do it.
 
+                    let node_id = joiner_reactor.node_id();
+                    effects.extend(
+                        joiner_reactor
+                            .into_validator_config()
+                            .boxed()
+                            .event(ThreeStageTestEvent::JoinerFinalized),
+                    );
+
+                    *self = ThreeStageTestReactor::JoinerFinalizing {
+                        opt_validator_config: None,
+                        node_id,
+                        registry,
+                    };
+                }
+                ThreeStageTestReactor::JoinerFinalizing {
+                    opt_validator_config,
+                    node_id: _,
+                    registry,
+                } => {
+                    let validator_config = opt_validator_config.expect("trying to transition from joiner finalizing into validator, but there is no validator config?");
+
+                    // JoinerFinalizing transitions into a validator.
                     let validator_scheduler = utils::leak(Scheduler::new(QueueKind::weights()));
                     let validator_event_queue_handle = EventQueueHandle::new(validator_scheduler);
 
@@ -394,6 +441,7 @@ impl NetworkedReactor for ThreeStageTestReactor {
                 ..
             } => initializer_reactor.node_id(),
             ThreeStageTestReactor::Joiner { joiner_reactor, .. } => joiner_reactor.node_id(),
+            ThreeStageTestReactor::JoinerFinalizing { node_id, .. } => node_id.clone(),
             ThreeStageTestReactor::Validator {
                 validator_reactor, ..
             } => validator_reactor.node_id(),
