@@ -297,6 +297,12 @@ pub struct ValidatorInitConfig {
     pub(super) network_identity: NetworkIdentity,
 }
 
+impl Debug for ValidatorInitConfig {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "ValidatorInitConfig {{ .. }}")
+    }
+}
+
 /// Validator node reactor.
 #[derive(DataSize, Debug)]
 pub struct Reactor {
