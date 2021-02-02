@@ -14,7 +14,7 @@ use casper_types::{PublicKey, SecretKey, U512};
 use crate::{
     components::{consensus::EraId, gossiper, small_network, storage},
     crypto::AsymmetricKeyExt,
-    reactor::{initializer, joiner, validator, Runner},
+    reactor::{validator, Runner},
     testing::{
         self,
         network::{Network, Nodes},
