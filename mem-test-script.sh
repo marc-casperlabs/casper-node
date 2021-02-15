@@ -8,8 +8,6 @@ NODE_COUNT=30
 
 export CASPER_ENABLE_LIBP2P_NET=1
 
-source utils/nctl/activate
-
 nctl assets-setup nodes=${NODE_COUNT} users=${NODE_COUNT}
 nctl start node=all loglevel=info
 
