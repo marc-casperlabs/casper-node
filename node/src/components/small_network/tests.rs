@@ -396,7 +396,7 @@ async fn check_varying_size_network_connects() {
         let mut net = Network::new();
 
         // Pick a random port in the higher ranges that is likely to be unused.
-        let first_node_port = testing::unused_port_on_localhost();
+        let (first_node_port, _port_guard) = testing::unused_socket_on_localhost();
 
         let _ = net
             .add_node_with_config(
