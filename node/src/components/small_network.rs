@@ -765,14 +765,12 @@ where
                     );
                     let remove = self.remove(effect_builder, &peer_id, false);
                     self.update_peers_metric();
-                    return remove;
+                    remove
+                } else {
+                    // This speeds up the connection process, but masks potential gossiper bugs.
+                    self.update_peers_metric();
+                    self.connect_to_peer_if_required(public_address)
                 }
-
-                // This speeds up the connection process, but masks potential bugs in the gossiper.
-                let effects = self.connect_to_peer_if_required(public_address);
-                self.update_peers_metric();
-
-                effects
             }
             Message::Payload(payload) => effect_builder
                 .announce_message_received(peer_id, payload)
