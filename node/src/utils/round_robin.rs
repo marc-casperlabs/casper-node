@@ -20,9 +20,9 @@ use tokio::sync::{Mutex, MutexGuard, Semaphore};
 
 /// Weighted round-robin scheduler.
 ///
-/// The weighted round-robin scheduler keeps queues internally and returns an item from a queue
-/// when asked. Each queue is assigned a weight, which is simply the amount of items maximally
-/// returned from it before moving on to the next queue.
+/// The weighted round-robin scheduler keeps queues internally and returns an item from a queue when
+/// asked. Each queue is assigned a weight, which is simply the maximum amount of items returned
+/// from it before moving on to the next queue.
 ///
 /// If a queue is empty, it is skipped until the next round. Queues are processed in the order they
 /// are passed to the constructor function.
@@ -116,18 +116,10 @@ where
     I: Serialize,
     K: Copy + Clone + Eq + Hash + IntoEnumIterator + Serialize,
 {
-    /// Create a snapshot of the queue by locking it and serializing it.
+    /// Create a snapshot of the queue by first locking every queue, then serializing them.
     ///
     /// The serialized events are streamed directly into `serializer`.
-    ///
-    /// # Warning
-    ///
-    /// This function locks all queues in the order defined by the order defined by
-    /// `IntoEnumIterator`. Calling it multiple times in parallel is safe, but other code that locks
-    /// more than one queue at the same time needs to be aware of this.
     pub async fn snapshot<S: Serializer>(&self, serializer: S) -> Result<(), S::Error> {
-        // Lock all queues in order get a snapshot, but release eagerly. This way we are guaranteed
-        // to have a consistent result, but we also allow for queues to be used again earlier.
         let mut locks = Vec::new();
 
         for kind in K::into_enum_iter() {
@@ -144,7 +136,7 @@ where
 
         let mut map = serializer.serialize_map(Some(locks.len()))?;
 
-        // By iterating over the guards, they are dropped in order.
+        // By iterating over the guards, they are dropped in order while we are still serializing.
         for (kind, guard) in locks {
             let vd = &*guard;
             map.serialize_key(&kind)?;
@@ -177,7 +169,13 @@ where
         writer.flush()
     }
 
-    /// Lock all queues in a well-defined order to avoid deadlocks conditions.
+    /// Lock all queues in a well-defined order to avoid deadlocks.
+    ///
+    /// # Warning
+    ///
+    /// This function locks all queues in the order defined by `IntoEnumIterator`. Calling it
+    /// multiple times in parallel is safe, but other code that locks more than one queue at the
+    /// same time needs to respect this ordering.
     async fn lock_queues(&self) -> Vec<(K, MutexGuard<'_, VecDeque<I>>)> {
         let mut locks = Vec::new();
         for kind in K::into_enum_iter() {
