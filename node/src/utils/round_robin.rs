@@ -50,17 +50,22 @@ struct QueueState<I> {
     ///
     /// Do not modify this unless you are holding the `queue` lock.
     event_count: AtomicUsize,
+
+    /// Individual queues.
     queue: Mutex<VecDeque<I>>,
 }
 
-impl<I> QueueState<I> {
-    fn new() -> Self {
-        QueueState {
-            event_count: AtomicUsize::new(0),
-            queue: Mutex::new(VecDeque::new()),
+// An evergreen issue: https://github.com/rust-lang/rust/issues/26925
+impl<I> Default for QueueState<I> {
+    fn default() -> Self {
+        QueueState{
+            event_count: Default::default(),
+            queue: Default::default(),
         }
     }
+}
 
+impl<I> QueueState<I> {
     /// Remove all events from a queue.
     async fn drain(&self) -> Vec<I> {
         let mut guard = self.queue.lock().await;
@@ -207,7 +212,7 @@ where
 
         let queues = weights
             .iter()
-            .map(|(idx, _)| (*idx, QueueState::new()))
+            .map(|(idx, _)| (*idx, QueueState::default()))
             .collect();
         let slots: Vec<Slot<K>> = weights
             .into_iter()
