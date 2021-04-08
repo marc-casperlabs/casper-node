@@ -18,7 +18,10 @@ use super::{
     Chainspec, CoreConfig, DeployConfig, Error, GlobalStateUpdate, HighwayConfig, NetworkConfig,
     ProtocolConfig,
 };
-use crate::utils::{self, Loadable};
+use crate::{
+    crypto::hash::Digest,
+    utils::{self, Loadable},
+};
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug)]
 // Disallow unknown fields to ensure config files and command-line overrides contain valid keys.
@@ -35,6 +38,7 @@ struct TomlProtocol {
     version: ProtocolVersion,
     hard_reset: bool,
     activation_point: ActivationPoint,
+    supported_ancestors: Vec<Digest>,
 }
 
 /// A chainspec configuration as laid out in the TOML-encoded configuration file.
@@ -57,6 +61,7 @@ impl From<&Chainspec> for TomlChainspec {
             version: chainspec.protocol_config.version,
             hard_reset: chainspec.protocol_config.hard_reset,
             activation_point: chainspec.protocol_config.activation_point,
+            supported_ancestors: chainspec.protocol_config.supported_ancestors.clone(),
         };
         let network = TomlNetwork {
             name: chainspec.network_config.name.clone(),
@@ -106,6 +111,7 @@ pub(super) fn parse_toml<P: AsRef<Path>>(chainspec_path: P) -> Result<Chainspec,
         version: toml_chainspec.protocol.version,
         hard_reset: toml_chainspec.protocol.hard_reset,
         activation_point: toml_chainspec.protocol.activation_point,
+        supported_ancestors: toml_chainspec.protocol.supported_ancestors,
         global_state_update,
     };
 

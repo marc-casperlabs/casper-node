@@ -12,6 +12,9 @@ hard_reset = false
 #
 # If it is an integer, it represents an era ID, meaning the protocol version becomes active at the start of this era.
 activation_point = '2021-03-15T17:00:00Z'
+# The list of prior chainspec hashes that are supported. Any peer connecting with an ancestor not
+# listed here will be ignored.
+supported_ancestors = []
 
 [network]
 # Human readable name for convenience; the genesis_hash is the true identifier.  The name influences the genesis hash by

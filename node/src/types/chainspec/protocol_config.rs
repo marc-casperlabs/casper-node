@@ -14,6 +14,7 @@ use casper_types::{
 };
 
 use super::{ActivationPoint, GlobalStateUpdate};
+use crate::crypto::hash::Digest;
 #[cfg(test)]
 use crate::testing::TestRng;
 
@@ -26,6 +27,9 @@ pub struct ProtocolConfig {
     pub(crate) hard_reset: bool,
     /// This protocol config applies starting at the era specified in the activation point.
     pub(crate) activation_point: ActivationPoint,
+    /// List of hashes of supported chainspecs. The node will consider any other node running one
+    /// of these compatible if they don't match the actual hash.
+    pub(crate) supported_ancestors: Vec<Digest>,
     /// Any arbitrary updates we might want to make to the global state at the start of the era
     /// specified in the activation point.
     pub(crate) global_state_update: Option<GlobalStateUpdate>,
@@ -41,11 +45,13 @@ impl ProtocolConfig {
             rng.gen::<u8>() as u32,
         );
         let activation_point = ActivationPoint::random(rng);
+        let supported_ancestors = Vec::new();
 
         ProtocolConfig {
             version: protocol_version,
             hard_reset: rng.gen(),
             activation_point,
+            supported_ancestors,
             global_state_update: None,
         }
     }
@@ -57,6 +63,7 @@ impl ToBytes for ProtocolConfig {
         buffer.extend(self.version.to_string().to_bytes()?);
         buffer.extend(self.hard_reset.to_bytes()?);
         buffer.extend(self.activation_point.to_bytes()?);
+        buffer.extend(self.supported_ancestors.to_bytes()?);
         buffer.extend(self.global_state_update.to_bytes()?);
         Ok(buffer)
     }
@@ -65,6 +72,7 @@ impl ToBytes for ProtocolConfig {
         self.version.to_string().serialized_length()
             + self.hard_reset.serialized_length()
             + self.activation_point.serialized_length()
+            + self.supported_ancestors.serialized_length()
             + self.global_state_update.serialized_length()
     }
 }
@@ -76,11 +84,13 @@ impl FromBytes for ProtocolConfig {
             .map_err(|_| bytesrepr::Error::Formatting)?;
         let (hard_reset, remainder) = bool::from_bytes(remainder)?;
         let (activation_point, remainder) = ActivationPoint::from_bytes(remainder)?;
+        let (supported_ancestors, remainder) = Vec::<Digest>::from_bytes(remainder)?;
         let (global_state_update, remainder) = Option::<GlobalStateUpdate>::from_bytes(remainder)?;
         let protocol_config = ProtocolConfig {
             version: protocol_version,
             activation_point,
             global_state_update,
+            supported_ancestors,
             hard_reset,
         };
         Ok((protocol_config, remainder))
