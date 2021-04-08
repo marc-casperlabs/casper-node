@@ -3,13 +3,13 @@
 // TODO: This module and `ChainId` should disappear in its entirety and the actual chainspec be made
 // available.
 
-use std::net::SocketAddr;
+use std::{collections::HashSet, net::SocketAddr};
 
 use casper_types::ProtocolVersion;
 use datasize::DataSize;
 
 use super::Message;
-use crate::types::Chainspec;
+use crate::{crypto::hash::Digest, types::Chainspec};
 
 /// Data retained from the chainspec by the small networking component.
 ///
@@ -23,6 +23,10 @@ pub(crate) struct ChainInfo {
     pub(super) maximum_net_message_size: u32,
     /// The protocol version.
     pub(super) protocol_version: ProtocolVersion,
+    /// Hash of the chainspec we are running with.
+    pub(super) our_chainspec: Digest,
+    /// The list of ancestors we support.
+    pub(super) supported_ancestors: HashSet<Digest>,
 }
 
 impl ChainInfo {
@@ -33,6 +37,11 @@ impl ChainInfo {
             network_name: "rust-tests-network".to_string(),
             maximum_net_message_size: 22 * 1024 * 1024, // Hardcoded at 22M.
             protocol_version: ProtocolVersion::V1_0_0,
+
+            // The test configuration does not deal with previous versions. Nodes will still match
+            // up, as they share a version.
+            our_chainspec: Digest::default(),
+            supported_ancestors: Default::default(),
         }
     }
 
@@ -42,6 +51,8 @@ impl ChainInfo {
             network_name: self.network_name.clone(),
             public_address,
             protocol_version: self.protocol_version,
+            chainspec: Some(self.our_chainspec),
+            supports: self.supported_ancestors.clone(),
         }
     }
 }
@@ -52,6 +63,13 @@ impl From<&Chainspec> for ChainInfo {
             network_name: chainspec.network_config.name.clone(),
             maximum_net_message_size: chainspec.network_config.maximum_net_message_size,
             protocol_version: chainspec.protocol_version(),
+            our_chainspec: chainspec.hash(),
+            supported_ancestors: chainspec
+                .protocol_config
+                .supported_ancestors
+                .iter()
+                .cloned()
+                .collect(),
         }
     }
 }

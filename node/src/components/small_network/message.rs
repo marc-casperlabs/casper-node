@@ -1,10 +1,13 @@
 use std::{
+    collections::HashSet,
     fmt::{self, Debug, Display, Formatter},
     net::SocketAddr,
 };
 
 use casper_types::ProtocolVersion;
 use serde::{Deserialize, Serialize};
+
+use crate::crypto::hash::Digest;
 
 /// The default protocol version to use in absence of one in the protocol version field.
 #[inline]
@@ -14,6 +17,9 @@ fn default_protocol_version() -> ProtocolVersion {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Message<P> {
+    // Note: Only append fields to this structure, as the encoder is configured to serialize
+    // structs as lists, not maps. As a result, missing fields can only be the last fields of
+    // the struct.
     Handshake {
         /// Network we are connected to.
         network_name: String,
@@ -22,6 +28,12 @@ pub enum Message<P> {
         /// Protocol version the node is speaking.
         #[serde(default = "default_protocol_version")]
         protocol_version: ProtocolVersion,
+        /// The node's chainspec hash.
+        #[serde(default)]
+        chainspec: Option<Digest>,
+        #[serde(default)]
+        /// Set of chainspec hashes the node supports.
+        supports: HashSet<Digest>,
     },
     Payload(P),
 }
@@ -33,11 +45,32 @@ impl<P: Display> Display for Message<P> {
                 network_name,
                 public_address,
                 protocol_version,
-            } => write!(
-                f,
-                "handshake: {}, public addr: {}, protocol_version: {}",
-                network_name, public_address, protocol_version,
-            ),
+                chainspec,
+                supports,
+            } => {
+                write!(
+                    f,
+                    "handshake: {}, public addr: {}, protocol_version: {}, chainspec: ",
+                    network_name, public_address, protocol_version,
+                )?;
+
+                if let Some(digest) = chainspec {
+                    write!(f, "{}", digest)?;
+                } else {
+                    f.write_str("-")?;
+                }
+
+                f.write_str(", supports: [")?;
+
+                let mut supported: Vec<_> = supports.iter().collect();
+                supported.sort();
+
+                for hash in supported {
+                    write!(f, " {}", hash)?;
+                }
+
+                f.write_str("]")
+            }
             Message::Payload(payload) => write!(f, "payload: {}", payload),
         }
     }
@@ -47,12 +80,12 @@ impl<P: Display> Display for Message<P> {
 // We use a variety of weird names in these tests.
 #[allow(non_camel_case_types)]
 mod tests {
-    use std::net::SocketAddr;
+    use std::{collections::HashSet, net::SocketAddr};
 
     use casper_types::ProtocolVersion;
     use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-    use crate::protocol;
+    use crate::{crypto::hash::Digest, protocol};
 
     use super::Message;
 
@@ -152,12 +185,23 @@ mod tests {
         }
     }
 
+    // Tests that a handshake sent by us can be decoded by an initial release node.
+    //
+    // This is only accurate as long as `protocol::Message` has not changed.
     #[test]
     fn v1_0_0_can_decode_current_handshake() {
+        let mut supports = HashSet::new();
+        supports.insert(Digest::default());
+
         let modern_handshake = Message::<protocol::Message>::Handshake {
             network_name: "example-handshake".to_string(),
             public_address: ([12, 34, 56, 78], 12346).into(),
             protocol_version: ProtocolVersion::from_parts(5, 6, 7),
+            chainspec: Some(Digest::from([
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                23, 24, 25, 26, 27, 28, 29, 30, 31,
+            ])),
+            supports,
         };
 
         let legacy_handshake: V1_0_0_Message = roundtrip_message(&modern_handshake);
@@ -176,6 +220,9 @@ mod tests {
         }
     }
 
+    /// Checks if we can encode and decode a handshake that was sent by an initial release node.
+    /// Note that the handshake is "synthesized" and not from an actual capture. The
+    /// `v1_0_0_handshake_is_as_expected` ensures our synthesization is accurate.
     #[test]
     fn current_handshake_decodes_from_v1_0_0() {
         let legacy_handshake = V1_0_0_Message::Handshake {
@@ -183,6 +230,8 @@ mod tests {
             public_address: ([12, 34, 56, 78], 12346).into(),
         };
 
+        // TODO: Add a test that tests for the "intermediate" handshake of the never-released
+        // V1.0.1.
         let modern_handshake: Message<protocol::Message> = roundtrip_message(&legacy_handshake);
 
         match modern_handshake {
@@ -190,10 +239,14 @@ mod tests {
                 network_name,
                 public_address,
                 protocol_version,
+                chainspec,
+                supports,
             } => {
                 assert_eq!(network_name, "example-handshake");
                 assert_eq!(public_address, ([12, 34, 56, 78], 12346).into());
                 assert_eq!(protocol_version, ProtocolVersion::V1_0_0);
+                assert_eq!(chainspec, None);
+                assert_eq!(supports, HashSet::new());
             }
             Message::Payload(_) => {
                 panic!("did not expect modern handshake to deserialize to payload")
@@ -201,6 +254,7 @@ mod tests {
         }
     }
 
+    /// Checks if an actual recorded historic handshake can be decoded as a modern handshake.
     #[test]
     fn current_handshake_decodes_from_historic_v1_0_0() {
         let modern_handshake: Message<protocol::Message> = deserialize_message(&V1_0_0_HANDSHAKE);
@@ -210,10 +264,14 @@ mod tests {
                 network_name,
                 public_address,
                 protocol_version,
+                chainspec,
+                supports,
             } => {
                 assert_eq!(network_name, "serialization-test");
                 assert_eq!(public_address, ([12, 34, 56, 78], 12346).into());
                 assert_eq!(protocol_version, ProtocolVersion::V1_0_0);
+                assert_eq!(chainspec, None);
+                assert_eq!(supports, HashSet::new());
             }
             Message::Payload(_) => {
                 panic!("did not expect modern handshake to deserialize to payload")

@@ -756,6 +756,7 @@ where
                 network_name,
                 public_address,
                 protocol_version,
+                ..
             } => {
                 if network_name != self.chain_info.network_name {
                     info!(
