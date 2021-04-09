@@ -1,6 +1,6 @@
 //! Weighted round-robin scheduling.
 //!
-//! This module implements a weighted round-robin scheduler that ensures no deadlocks occur, but
+//! This module implements a weighted round-robin scheduler that ensures no starvation occurs, but
 //! still allows prioritizing events from one source over another. The module uses `tokio`'s
 //! synchronization primitives under the hood.
 
@@ -11,12 +11,12 @@ use std::{
     hash::Hash,
     io::{self, BufWriter, Write},
     num::NonZeroUsize,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::Mutex,
 };
 
 use enum_iterator::IntoEnumIterator;
 use serde::{ser::SerializeMap, Serialize, Serializer};
-use tokio::sync::{Mutex, MutexGuard, Semaphore};
+use tokio::sync::Notify;
 
 /// Weighted round-robin scheduler.
 ///
@@ -30,77 +30,34 @@ use tokio::sync::{Mutex, MutexGuard, Semaphore};
 /// The scheduler keeps track internally which queue needs to be popped next.
 #[derive(Debug)]
 pub struct WeightedRoundRobin<I, K> {
-    /// Current iteration state.
-    state: Mutex<IterationState<K>>,
+    /// Lock-protected internal state.
+    state: Mutex<InternalState<I, K>>,
 
     /// A list of slots that are round-robin'd.
+    ///
+    /// These function as a blueprint for instances of `state.active_slow`. Using a vec of K's
+    /// variants ensures each slot has an identifying index 0..n (with `n` being the number of
+    /// variants), which otherwise might not hold true,
     slots: Vec<Slot<K>>,
 
-    /// Actual queues.
-    queues: HashMap<K, QueueState<I>>,
-
-    /// Number of items in all queues combined.
-    total: Semaphore,
+    /// A notification for clients waiting to pop a value from the queue.
+    notify: Notify,
 }
 
-/// State that wraps queue and its event count.
 #[derive(Debug)]
-struct QueueState<I> {
-    /// A queue's event counter.
-    ///
-    /// Do not modify this unless you are holding the `queue` lock.
-    event_count: AtomicUsize,
-
-    /// Individual queues.
-    queue: Mutex<VecDeque<I>>,
-}
-
-// An evergreen issue: https://github.com/rust-lang/rust/issues/26925
-impl<I> Default for QueueState<I> {
-    fn default() -> Self {
-        QueueState{
-            event_count: Default::default(),
-            queue: Default::default(),
-        }
-    }
-}
-
-impl<I> QueueState<I> {
-    /// Remove all events from a queue.
-    async fn drain(&self) -> Vec<I> {
-        let mut guard = self.queue.lock().await;
-        let events: Vec<I> = guard.drain(..).collect();
-        self.event_count.fetch_sub(events.len(), Ordering::SeqCst);
-        events
-    }
-
-    #[inline]
-    async fn push_back(&self, element: I) {
-        self.queue.lock().await.push_back(element);
-        self.event_count.fetch_add(1, Ordering::SeqCst);
-    }
-
-    #[inline]
-    fn dec_count(&self) {
-        self.event_count.fetch_sub(1, Ordering::SeqCst);
-    }
-
-    #[inline]
-    fn event_count(&self) -> usize {
-        self.event_count.load(Ordering::SeqCst)
-    }
-}
-
-/// The inner state of the queue iteration.
-#[derive(Copy, Clone, Debug)]
-struct IterationState<K> {
+struct InternalState<I, K> {
     /// The currently active slot.
     ///
     /// Once it has no tickets left, the next slot is loaded.
     active_slot: Slot<K>,
 
-    /// The position of the active slot. Used to calculate the next slot.
+    /// The position in `slots` the `active_slot` was cloned from. Used to calculate the next slot.
     active_slot_idx: usize,
+
+    /// Actual queues.
+    queues: HashMap<K, VecDeque<I>>,
+
+    count: usize,
 }
 
 /// An internal slot in the round-robin scheduler.
@@ -118,89 +75,6 @@ struct Slot<K> {
 
 impl<I, K> WeightedRoundRobin<I, K>
 where
-    I: Serialize,
-    K: Copy + Clone + Eq + Hash + IntoEnumIterator + Serialize,
-{
-    /// Create a snapshot of the queue by first locking every queue, then serializing them.
-    ///
-    /// The serialized events are streamed directly into `serializer`.
-    pub async fn snapshot<S: Serializer>(&self, serializer: S) -> Result<(), S::Error> {
-        let mut locks = Vec::new();
-
-        for kind in K::into_enum_iter() {
-            let queue_guard = self
-                .queues
-                .get(&kind)
-                .expect("missing queue while snapshotting")
-                .queue
-                .lock()
-                .await;
-
-            locks.push((kind, queue_guard));
-        }
-
-        let mut map = serializer.serialize_map(Some(locks.len()))?;
-
-        // By iterating over the guards, they are dropped in order while we are still serializing.
-        for (kind, guard) in locks {
-            let vd = &*guard;
-            map.serialize_key(&kind)?;
-            map.serialize_value(vd)?;
-        }
-        map.end()?;
-
-        Ok(())
-    }
-}
-
-impl<I, K> WeightedRoundRobin<I, K>
-where
-    I: Debug,
-    K: Copy + Clone + Eq + Hash + IntoEnumIterator + Debug,
-{
-    /// Dump the contents of the queues (`Debug` representation) to a given file.
-    pub async fn debug_dump(&self, file: &mut File) -> Result<(), io::Error> {
-        let locks = self.lock_queues().await;
-
-        let mut writer = BufWriter::new(file);
-        for (kind, guard) in locks {
-            let queue = &*guard;
-            writer.write_all(format!("Queue: {:?} ({}) [\n", kind, queue.len()).as_bytes())?;
-            for event in queue.iter() {
-                writer.write_all(format!("\t{:?}\n", event).as_bytes())?;
-            }
-            writer.write_all(b"]\n")?;
-        }
-        writer.flush()
-    }
-
-    /// Lock all queues in a well-defined order to avoid deadlocks.
-    ///
-    /// # Warning
-    ///
-    /// This function locks all queues in the order defined by `IntoEnumIterator`. Calling it
-    /// multiple times in parallel is safe, but other code that locks more than one queue at the
-    /// same time needs to respect this ordering.
-    async fn lock_queues(&self) -> Vec<(K, MutexGuard<'_, VecDeque<I>>)> {
-        let mut locks = Vec::new();
-        for kind in K::into_enum_iter() {
-            let queue_guard = self
-                .queues
-                .get(&kind)
-                .expect("missing queue while locking")
-                .queue
-                .lock()
-                .await;
-
-            locks.push((kind, queue_guard));
-        }
-
-        locks
-    }
-}
-
-impl<I, K> WeightedRoundRobin<I, K>
-where
     K: Copy + Clone + Eq + Hash,
 {
     /// Creates a new weighted round-robin scheduler.
@@ -212,7 +86,7 @@ where
 
         let queues = weights
             .iter()
-            .map(|(idx, _)| (*idx, QueueState::default()))
+            .map(|(idx, _)| (*idx, Default::default()))
             .collect();
         let slots: Vec<Slot<K>> = weights
             .into_iter()
@@ -224,13 +98,14 @@ where
         let active_slot = slots[0];
 
         WeightedRoundRobin {
-            state: Mutex::new(IterationState {
+            state: Mutex::new(InternalState {
                 active_slot,
                 active_slot_idx: 0,
+                queues,
+                count: 0,
             }),
             slots,
-            queues,
-            total: Semaphore::new(0),
+            notify: Notify::new(),
         }
     }
 
@@ -238,88 +113,157 @@ where
     ///
     /// ## Panics
     ///
-    /// Panics if the queue identified by key `queue` does not exist.
+    /// Panics if the state lock has been poisoned.
+    #[inline]
     pub(crate) async fn push(&self, item: I, queue: K) {
-        self.queues
-            .get(&queue)
-            .expect("tried to push to non-existent queue")
-            .push_back(item)
-            .await;
+        // Add the item, then release the lock. It's fine to do this, as the number of permits is
+        // supposed to be less or equal than the number of items, not exact.
+        {
+            let mut guard = self.state.lock().expect("state lock poisoned");
+            guard
+                .queues
+                .get_mut(&queue)
+                .expect("the queue disappeared. this should not happen")
+                .push_back(item);
+            guard.count += 1;
+        }
 
-        // We increase the item count after we've put the item into the queue.
-        self.total.add_permits(1);
+        // If there's a client waiting, notify it.
+        self.notify.notify_one();
     }
 
     /// Returns the next item from queue.
     ///
-    /// Asynchronously waits until a queue is non-empty or panics if an internal error occurred.
+    /// Asynchronously waits until a queue is non-empty.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal state lock has been poisoned.
     pub(crate) async fn pop(&self) -> (I, K) {
-        // Safe to `expect` here as the only way for acquiring a permit to fail would be if the
-        // `self.total` semaphore were closed.
-        self.total.acquire().await.expect("should acquire").forget();
+        'wait: loop {
+            let mut state = self.state.lock().expect("lock poisoned");
 
-        let mut inner = self.state.lock().await;
-
-        // We know we have at least one item in a queue.
-        loop {
-            let queue_state = self
-                .queues
-                // The queue disappearing should never happen.
-                .get(&inner.active_slot.key)
-                .expect("the queue disappeared. this should not happen");
-
-            let mut current_queue = queue_state.queue.lock().await;
-
-            if inner.active_slot.tickets == 0 || current_queue.is_empty() {
-                // Go to next queue slot if we've exhausted the current queue.
-                inner.active_slot_idx = (inner.active_slot_idx + 1) % self.slots.len();
-                inner.active_slot = self.slots[inner.active_slot_idx];
-                continue;
+            if state.count == 0 {
+                drop(state);
+                self.notify.notified().await;
+                // Currently spinlocks.
+                continue 'wait;
             }
 
-            // We have hit a queue that is not empty. Decrease tickets and pop.
-            inner.active_slot.tickets -= 1;
+            // At this point, we know we have at least one item in a queue.
+            'pop: loop {
+                // let current_queue = state
+                //     .queues
+                //     .get(&state.active_slot.key)
+                //     .expect("the queue disappeared. this should not happen");
 
-            let item = current_queue
-                .pop_front()
-                // We hold the queue's lock and checked `is_empty` earlier.
-                .expect("item disappeared. this should not happen");
-            queue_state.dec_count();
-            break (item, inner.active_slot.key);
+                // if state.active_slot.tickets == 0 || current_queue.is_empty() {
+                //     // Go to next queue slot if we've exhausted the current queue.
+                //     state.active_slot_idx = (state.active_slot_idx + 1) % self.slots.len();
+                //     state.active_slot = self.slots[state.active_slot_idx];
+                //     continue 'pop;
+                // }
+
+                // // We have hit a queue that is not empty. Decrease tickets and pop.
+                // state.active_slot.tickets -= 1;
+
+                // let item = current_queue
+                //     .pop_front()
+                //     // We hold the lock and checked `is_empty` earlier.
+                //     .expect("item disappeared. this should not happen");
+                // return (item, inner.active_slot.key);
+            }
         }
     }
 
     /// Drains all events from a specific queue.
     pub(crate) async fn drain_queue(&self, queue: K) -> Vec<I> {
-        let events = self
-            .queues
-            .get(&queue)
-            .expect("queue to be drained disappeared")
-            .drain()
-            .await;
+        todo!()
+        // let mut state = self.state.lock().expect("lock poisoned");
 
-        // TODO: This is racy if someone is calling `pop` at the same time.
-        self.total
-            .acquire_many(events.len() as u32)
-            .await
-            .expect("could not acquire tickets during drain")
-            .forget();
+        // let events = self
+        //     .queues
+        //     .get(&queue)
+        //     .expect("queue to be drained disappeared")
+        //     .drain()
+        //     .await;
 
-        events
+        // // TODO: This is racy if someone is calling `pop` at the same time.
+        // self.total
+        //     .acquire_many(events.len() as u32)
+        //     .await
+        //     .expect("could not acquire tickets during drain")
+        //     .forget();
+
+        // events
     }
 
     /// Returns the number of events currently in the queue.
     #[cfg(test)]
     pub(crate) fn item_count(&self) -> usize {
-        self.total.available_permits()
+        todo!()
+        // self.total.available_permits()
     }
 
     /// Returns the number of events in each of the queues.
+    ///
+    /// This function may be slightly inaccurate, as it does not lock the queues to get a snapshot
+    /// across all queues.
     pub(crate) fn event_queues_counts(&self) -> HashMap<K, usize> {
-        self.queues
-            .iter()
-            .map(|(key, queue)| (*key, queue.event_count()))
-            .collect()
+        todo!()
+        // self.queues
+        //     .iter()
+        //     .map(|(key, queue)| (*key, queue.count()))
+        //     .collect()
+    }
+}
+
+impl<I, K> WeightedRoundRobin<I, K>
+where
+    I: Serialize,
+    K: Copy + Clone + Eq + Hash + IntoEnumIterator + Serialize,
+{
+    /// Create a snapshot of the queue by first locking every queue, then serializing them.
+    ///
+    /// The serialized events are streamed directly into `serializer`.
+    pub async fn snapshot<S: Serializer>(&self, serializer: S) -> Result<(), S::Error> {
+        todo!()
+        // let locks = self.lock_queues().await;
+
+        // let mut map = serializer.serialize_map(Some(locks.len()))?;
+
+        // // By iterating over the guards, they are dropped in order while we are still
+        // serializing. for (kind, guard) in locks {
+        //     let vd = &*guard;
+        //     map.serialize_key(&kind)?;
+        //     map.serialize_value(vd)?;
+        // }
+        // map.end()?;
+
+        // Ok(())
+    }
+}
+
+impl<I, K> WeightedRoundRobin<I, K>
+where
+    I: Debug,
+    K: Copy + Clone + Eq + Hash + IntoEnumIterator + Debug,
+{
+    /// Dump the contents of the queues (`Debug` representation) to a given file.
+    pub async fn debug_dump(&self, file: &mut File) -> Result<(), io::Error> {
+        todo!()
+        // let locks = self.lock_queues().await;
+
+        // let mut writer = BufWriter::new(file);
+        // for (kind, guard) in locks {
+        //     let queue = &*guard;
+        //     writer.write_all(format!("Queue: {:?} ({}) [\n", kind, queue.len()).as_bytes())?;
+        //     for event in queue.iter() {
+        //         writer.write_all(format!("\t{:?}\n", event).as_bytes())?;
+        //     }
+        //     writer.write_all(b"]\n")?;
+        // }
+        // writer.flush()
     }
 }
 
