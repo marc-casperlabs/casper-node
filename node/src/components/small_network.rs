@@ -756,8 +756,10 @@ where
                 network_name,
                 public_address,
                 protocol_version,
-                ..
+                chainspec: their_chainspec,
+                supports: their_supports,
             } => {
+                // Ensure we're on the same network.
                 if network_name != self.chain_info.network_name {
                     info!(
                         our_id=%self.our_id,
@@ -771,6 +773,22 @@ where
                     let remove = self.remove(effect_builder, &peer_id, false);
                     self.update_peers_metric();
                     return remove;
+                }
+
+                // Ensure we are compatible.
+                if !self
+                    .chain_info
+                    .is_compatible_with(&their_chainspec, &their_supports)
+                {
+                    info!(
+                        our_id=%self.our_id,
+                        %peer_id,
+                        our_chainspec=?self.chain_info.our_chainspec,
+                        their_chainspec=?their_chainspec,
+                        our_supports=?self.chain_info.supported_ancestors,
+                        their_supports=?their_supports,
+                        "dropping connection due to chainspec incompatibility"
+                    );
                 }
 
                 // This speeds up the connection process, but masks potential bugs in the gossiper.

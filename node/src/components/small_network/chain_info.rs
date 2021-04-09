@@ -55,6 +55,31 @@ impl ChainInfo {
             supports: self.supported_ancestors.clone(),
         }
     }
+
+    /// Determines whether or not a given set of remote chainspec data is compatible with ours.
+    pub(super) fn is_compatible_with(
+        &self,
+        their_chainspec: &Option<Digest>,
+        their_supports: &HashSet<Digest>,
+    ) -> bool {
+        match their_chainspec {
+            Some(their_chainspec) => {
+                // If our chainspecs match 1:1, we are definitely compatible.
+                if their_chainspec == &self.our_chainspec {
+                    return true;
+                }
+
+                // Otherwise, ensure at least compatibility on one side.
+                self.supported_ancestors.contains(their_chainspec)
+                    || their_supports.contains(&self.our_chainspec)
+            }
+            None => {
+                // Remote did not send a chainspec at all. We completely ignore chainspec
+                // checking at this point, as they are likely on a older version.
+                true
+            }
+        }
+    }
 }
 
 impl From<&Chainspec> for ChainInfo {
